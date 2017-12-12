@@ -3,6 +3,8 @@
 Copyright © 2017 SDElements Inc.
 """
 
+__version__ = '0.0.2'
+
 default_ca_path = '/tmp/ca.pem'
 default_ca_file = '/tmp/ca_files'
 default_keytab_path = '/tmp/keytab'
