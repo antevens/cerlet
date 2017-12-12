@@ -1,4 +1,7 @@
 # CerLet CertMonger Let's Encrypt Helper
+
+WORK IN PROGRESS, INCOMPLETE!
+
 Helper integration to allow certmonger to communicate with the Let's Encrypt CA
 
 This package integrates Certmonger (and by extension FreeIPA/Sattellite) with
