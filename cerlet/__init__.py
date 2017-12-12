@@ -3,9 +3,12 @@
 Copyright © 2017 SDElements Inc.
 """
 
-
 default_ca_path = '/tmp/ca.pem'
 default_ca_file = '/tmp/ca_files'
+default_keytab_path = '/tmp/keytab'
+default_submitter_principal = 'hostname'
+default_request_profile = None
+default_request_principal = 'hostname'
 
 
 def main():
@@ -33,7 +36,7 @@ def generate_ipa_xml_rpc_url():
 
 def parse_args():
     import argparse
-    parser = argparse.ArgumentParser(description="Apply for Let's Encrypt Certificates")
+    parser = argparse.ArgumentParser(description="Apply for Let's Encrypt Certificates", add_help=False)
     parser.add_argument('-h', '--host_name', '--host', dest='ipa_host',
                         default=lookup_ipa_host(),
                         help='Hostname or IP Address of the IPA (Satellite) server')
@@ -62,14 +65,14 @@ def parse_args():
                         default=default_request_principal,
                         help='Principal(s) (FQDN) used in signing request, comma separated')
     parser.add_argument('-T', '--request_profile', '--profile', dest='request_profile',
-                        default=default_request_profile ,
+                        default=default_request_profile,
                         help='Use a specific profile when requesting enrollment')
     parser.add_argument('-v', '--verbose', dest='verbose',
                         default=False, action='store_true',
                         help='Use verbose logging')
-
-    parser.add_argument('options', dest='options', help='Options')
-    parser.add_argument('csrfile', dest='csr_file',
-                        help='Path to a PEM encoded Certificate Signing Request (CSR)')
+    parser.add_argument('--help', action='help', help='Show this help message and exit')
+    parser.add_argument('options', help='Options')
+    parser.add_argument('csr_file', help='Path to a PEM encoded Certificate Signing Request (CSR)')
 
     args = parser.parse_args()
+    print(args)
