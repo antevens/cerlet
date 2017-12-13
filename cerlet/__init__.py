@@ -3,6 +3,9 @@
 Copyright © 2017 SDElements Inc.
 """
 
+import argparse
+import ipalib
+
 __version__ = '0.0.2'
 
 default_ca_path = '/tmp/ca.pem'
@@ -16,6 +19,16 @@ default_request_principal = 'hostname'
 def main():
     """ Main entry point to program """
     parse_args()
+    ipalib.api.bootstrap_with_global_options(context='cerlet')
+    ipalib.api.finalize()
+
+    if ipalib.api.env.in_server:
+        ipalib.api.Backend.ldap2.connect()
+    else:
+        ipalib.api.Backend.rpcclient.connect()
+
+    print('The admin user:')
+    print(ipalib.api.Command.user_show(u'admin'))
 
 
 def lookup_ipa_host():
@@ -37,7 +50,6 @@ def generate_ipa_xml_rpc_url():
 
 
 def parse_args():
-    import argparse
     parser = argparse.ArgumentParser(description="Apply for Let's Encrypt Certificates", add_help=False)
     parser.add_argument('-h', '--host_name', '--host', dest='ipa_host',
                         default=lookup_ipa_host(),
