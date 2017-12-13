@@ -20,10 +20,6 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 # Dependencies
 required_modules = ['ipalib']
 
-# Argparse was backported to 2.6
-if sys.version < '2.7':
-    required_modules.append(['argparse'])
-
 setup(
     name='cerlet',
 
