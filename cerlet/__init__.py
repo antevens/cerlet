@@ -4,9 +4,14 @@ Copyright © 2017 SDElements Inc.
 """
 
 import argparse
+import asn1crypto
+import asn1crypto.csr
+import asn1crypto.pem
+import dns
+import dns.name
 import ipalib
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 
 default_ca_path = '/tmp/ca.pem'
 default_ca_file = '/tmp/ca_files'
@@ -18,7 +23,7 @@ default_request_principal = 'hostname'
 
 def main():
     """ Main entry point to program """
-    parse_args()
+    args = parse_args()
     ipalib.api.bootstrap_with_global_options(context='cerlet')
     ipalib.api.finalize()
 
@@ -27,8 +32,33 @@ def main():
     else:
         ipalib.api.Backend.rpcclient.connect()
 
-    print('The admin user:')
-    print(ipalib.api.Command.user_show(u'admin'))
+    with open(args.csr_file, 'rb') as f:
+        der_bytes = f.read()
+        if asn1crypto.pem.detect(der_bytes):
+            type_name, headers, der_bytes = asn1crypto.pem.unarmor(der_bytes)
+
+    request = asn1crypto.csr.CertificationRequest.load(der_bytes)
+    info = request['certification_request_info']
+    subject = info['subject'].native
+
+    dns_zone_candidate = dns.name.from_text(subject['common_name'])
+    while True:
+        try:
+            ipalib.api.Command.dnszone_show(dns_zone_candidate.to_text())
+            break
+        except ipalib.errors.NotFound:
+            try:
+                dns_zone_candidate = dns_zone_candidate.parent()
+            except dns.name.NoParent:
+                raise ipalib.errors.NotFound('Unable to find DNS Zone on IPA server')
+
+    acme_record = "_acme-challenge.{0}.".format(subject['common_name'])
+    try:
+        ipalib.api.Command.dnsrecord_mod(dns_zone_candidate.to_text(), acme_record, txtrecord='newold')
+    except ipalib.errors.NotFound:
+        ipalib.api.Command.dnsrecord_add(dns_zone_candidate.to_text(), acme_record, txtrecord='newnew')
+
+    import pdb; pdb.set_trace()
 
 
 def lookup_ipa_host():
@@ -88,5 +118,4 @@ def parse_args():
     parser.add_argument('options', help='Options')
     parser.add_argument('csr_file', help='Path to a PEM encoded Certificate Signing Request (CSR)')
 
-    args = parser.parse_args()
-    print(args)
+    return parser.parse_args()

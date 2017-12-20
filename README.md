@@ -34,3 +34,4 @@ git clone git@github.com:antevens/cerlet.git && cd $HOME/Revisions/cerlet
 virtualenv-3.6 -p python3.6 /home/vagrant/Virtualenv
 source /home/vagrant/Virtualenv/bin/activate
 python setup.py develop
+kinit && cerlet

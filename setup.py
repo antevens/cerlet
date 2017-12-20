@@ -18,7 +18,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
     long_description = f.read()
 
 # Dependencies
-required_modules = ['pyasn1', 'ipalib', 'ipaclient', 'jinja2']
+required_modules = ['pyasn1','ipalib', 'ipaclient', 'jinja2', 'asn1crypto', 'dnspython']
 
 setup(
     name='cerlet',
