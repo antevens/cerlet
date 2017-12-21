@@ -10,8 +10,19 @@ import asn1crypto.pem
 import dns
 import dns.name
 import ipalib
+import logging
+import re
 
 __version__ = '0.0.3'
+
+# Patterns
+IPADDRESS_PATTERN =re.compile('(?:host/|\s|^)*((([2][5][0-5]\.)|([2][0-4][0-9]\.)|([0-1]?[0-9]?[0-9]\.)){3}(([2][5][0-5])|([2][0-4][0-9])|([0-1]?[0-9]?[0-9])))(?:@|\s|$)*')
+FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]{2,})(?:@|\s)*')
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 default_ca_path = '/tmp/ca.pem'
 default_ca_file = '/tmp/ca_files'
@@ -32,6 +43,7 @@ def main():
     else:
         ipalib.api.Backend.rpcclient.connect()
 
+
     with open(args.csr_file, 'rb') as f:
         der_bytes = f.read()
         if asn1crypto.pem.detect(der_bytes):
@@ -40,23 +52,36 @@ def main():
     request = asn1crypto.csr.CertificationRequest.load(der_bytes)
     info = request['certification_request_info']
     subject = info['subject'].native
+    common_name = subject['common_name']
+    host = ipalib.api.Command.host_show(common_name)['result']
+    principals = host['krbprincipalname']
+    fqdn = host['fqdn']
+    # Host names and IP addresses
+    subjects = [match.group(1) for principal in principals for match in
+            [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)] if match]
 
-    dns_zone_candidate = dns.name.from_text(subject['common_name'])
-    while True:
-        try:
-            ipalib.api.Command.dnszone_show(dns_zone_candidate.to_text())
-            break
-        except ipalib.errors.NotFound:
+    for subject_alt_name in subjects:
+        dns_zone_candidate = dns.name.from_text(subject_alt_name)
+        while True:
             try:
-                dns_zone_candidate = dns_zone_candidate.parent()
-            except dns.name.NoParent:
-                raise ipalib.errors.NotFound('Unable to find DNS Zone on IPA server')
+                ipalib.api.Command.dnszone_show(dns_zone_candidate.to_text())
+                break
+            except ipalib.errors.NotFound:
+                try:
+                    dns_zone_candidate = dns_zone_candidate.parent()
+                except dns.name.NoParent:
+                    raise ipalib.errors.NotFound('Unable to find DNS Zone on IPA server')
 
-    acme_record = "_acme-challenge.{0}.".format(subject['common_name'])
-    try:
-        ipalib.api.Command.dnsrecord_mod(dns_zone_candidate.to_text(), acme_record, txtrecord='newold')
-    except ipalib.errors.NotFound:
-        ipalib.api.Command.dnsrecord_add(dns_zone_candidate.to_text(), acme_record, txtrecord='newnew')
+        acme_record = "_acme-challenge.{0}.".format(subject_alt_name)
+        challenge = "bogus_challenge"
+        try:
+            ipalib.api.Command.dnsrecord_mod(dns_zone_candidate.to_text(), acme_record, txtrecord=challenge)
+            logging.debug('Added DNS record "{0} -> {1}" for authorization'.format(acme_record, challenge))
+        except ipalib.errors.NotFound:
+            ipalib.api.Command.dnsrecord_add(dns_zone_candidate.to_text(), acme_record, txtrecord=challenge)
+            logging.debug('Modified DNS record "{0} -> {1}" for authorization'.format(acme_record, challenge))
+        except ipalib.errors.EmptyModlist:
+            logging.info("No DNS Changes required for authorization")
 
     import pdb; pdb.set_trace()
 
