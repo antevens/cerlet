@@ -1,23 +1,24 @@
-# CerLet CertMonger Let's Encrypt Helper
+# CerLet is a Certbot plugin and CertMonger Helper
 
 WORK IN PROGRESS, INCOMPLETE!
 
-Helper integration to allow certmonger to communicate with the Let's Encrypt CA
-
-This package integrates Certmonger (and by extension FreeIPA/Sattellite) with
-the Let's Encrypt community Certificate Authority.
+CertLet is both a Certbot plugin to allow IPA (FreeIPA/Redhat Satellite) DNS
+authentication for authentication of and a Certmonger Helper to allow FreeIPA
+to use Let's Encrypt certificates.
 
 This allows hosts in FreeIPA to automatically get publically trusted certificates
-for all purposes.
-
-Due to using DNS based authentication certificates ban be issued for private
-servers as well as public ones without any service interruptions. This also
-allows certificates to include an alias per principal or any number of host/DNS
+for all purposes and allows hosts to get valid certificates for multiple domain
 names.
 
-This package includes python libraries which will be installed in the default
-site-packages directory of your python distribution (or virtualenv) and an entry
-point script that will be installed under /usr/libexec/certmonger.
+Due to using DNS based authentication certificates can be issued for private
+servers as well as public ones without any service interruptions. This also
+allows certificates to include multiple principals or up to 99 host/DNS names.
+
+
+# Probably not valid for CertBot plugin style
+#This package includes python libraries which will be installed in the default
+#site-packages directory of your python distribution (or virtualenv)and an entry
+#point script that will be installed under /usr/libexec/certmonger.
 
 
 #Steps to set up a development environment on a Fedora box:
