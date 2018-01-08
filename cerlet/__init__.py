@@ -8,6 +8,7 @@ import dns
 import dns.name
 import logging
 import ipalib
+import re
 import zope
 
 __version__ = '0.0.5'
@@ -17,13 +18,13 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Patterns
-IPADDRESS_PATTERN =re.compile('(?:host/|\s|^)*((([2][5][0-5]\.)|([2][0-4][0-9]\.)|([0-1]?[0-9]?[0-9]\.)){3}(([2][5][0-5])|([2][0-4][0-9])|([0-1]?[0-9]?[0-9])))(?:@|\s|$)*')
+IPADDRESS_PATTERN = re.compile('(?:host/|\s|^)*((([2][5][0-5]\.)|([2][0-4][0-9]\.)|([0-1]?[0-9]?[0-9]\.)){3}(([2][5][0-5])|([2][0-4][0-9])|([0-1]?[0-9]?[0-9])))(?:@|\s|$)*')
 FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]{2,})(?:@|\s)*')
 
 
-@zope.interface.implementer(interfaces.IAuthenticator)
-@zope.interface.provider(interfaces.IPluginFactory)
-class FreeIPAAuthenticator(DNSAuthenticator):
+@zope.interface.implementer(certbot.interfaces.IAuthenticator)
+@zope.interface.provider(certbot.interfaces.IPluginFactory)
+class FreeIPAAuthenticator(certbot.plugins.dns_common.DNSAuthenticator):
     """ FreeIPA Authentication using DNS challenges """
 
     def __init__(self, *args, **kwargs):
@@ -42,14 +43,14 @@ class FreeIPAAuthenticator(DNSAuthenticator):
 
         super(FreeIPAAuthenticator, self).__init__(*args, **kwargs)
 
-     def get_chall_pref(self, domain):
-         # pylint: disable=missing-docstring,no-self-use,unused-argument
-         return [challenges.DNS01]
+    def get_chall_pref(self, domain):  # pylint: disable=missing-docstring,no-self-use,unused-argument
+        return [certbot.challenges.DNS01]
 
-    return [challenges.HTTP01, challenges.DNS01, challenges.TLSSNI01]
+    return [certbot.challenges.HTTP01, certbot.challenges.DNS01, certbot.challenges.TLSSNI01]
+
     @classmethod
-    def add_parser_arguments(cls, add, ):
-        super(FreeIPAAuthenticator, cls).add_parser_arguments( add, default_propagation_seconds)
+    def add_parser_arguments(cls, add, default_propagation_seconds=10):
+        super(FreeIPAAuthenticator, cls).add_parser_arguments(add, default_propagation_seconds)
         add("credentials", help="Loopia API credentials INI file.")
         add('-h', '--host_name', '--host', dest='ipa_host', help='Hostname or IP Address of the IPA (Satellite) server')
         add('-d', '--domain_name', '--domain', dest='ipa_domain', help='Domain in IPA (Satellite) to register under')
@@ -80,9 +81,7 @@ class FreeIPAAuthenticator(DNSAuthenticator):
         principals = host['krbprincipalname']
         fqdn = host['fqdn']
         # Create unique list of FQDNs from principals and hostname (CSR Subject)
-        subjects = set(list(fqdn) + [match.group(1) for principal in principals for match in
-                [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)]
-                if match])
+        subjects = set(list(fqdn) + [match.group(1) for principal in principals for match in [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)] if match])
 
         # Find the DNS Zone to add/modify records to/in
         for subject_alt_name in subjects:
@@ -99,6 +98,7 @@ class FreeIPAAuthenticator(DNSAuthenticator):
 
     def cleanup(self, domain, validation_name, validation):
         pass
+
 
 def main(self):
     """ Entry point when run from CertMonger or standalone """
