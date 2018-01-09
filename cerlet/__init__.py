@@ -14,7 +14,6 @@ import zope
 __version__ = '0.0.5'
 
 # Set up logging
-logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 # Patterns
@@ -24,8 +23,10 @@ FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]
 
 @zope.interface.implementer(certbot.interfaces.IAuthenticator)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
-class FreeIPAAuthenticator(certbot.plugins.dns_common.DNSAuthenticator):
-    """ FreeIPA Authentication using DNS challenges """
+class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
+    """ FreeIPA / Red Hat Enterprise Linux IdM authentication using DNS challenges """
+
+    description = __doc__.strip().split("\n", 1)[0]
 
     def __init__(self, *args, **kwargs):
         # Set up IPA API connection
@@ -41,19 +42,17 @@ class FreeIPAAuthenticator(certbot.plugins.dns_common.DNSAuthenticator):
         else:
             ipalib.api.Backend.rpcclient.connect()
 
-        super(FreeIPAAuthenticator, self).__init__(*args, **kwargs)
+        super(Authenticator, self).__init__(*args, **kwargs)
 
     def get_chall_pref(self, domain):  # pylint: disable=missing-docstring,no-self-use,unused-argument
         return [certbot.challenges.DNS01]
 
-    return [certbot.challenges.HTTP01, certbot.challenges.DNS01, certbot.challenges.TLSSNI01]
-
     @classmethod
     def add_parser_arguments(cls, add, default_propagation_seconds=10):
-        super(FreeIPAAuthenticator, cls).add_parser_arguments(add, default_propagation_seconds)
+        super(Authenticator, cls).add_parser_arguments(add, default_propagation_seconds)
         add("credentials", help="Loopia API credentials INI file.")
         add('-h', '--host_name', '--host', dest='ipa_host', help='Hostname or IP Address of the IPA (Satellite) server')
-        add('-d', '--domain_name', '--domain', dest='ipa_domain', help='Domain in IPA (Satellite) to register under')
+        add('-d', '--ipa_domain_name', '--ipa_domain', dest='ipa_domain', help='Domain in IPA (Satellite) to register under')
         add('-H', '--xml_rpc_url', '--xmlrpc-url', dest='ipa_xml_rpc_url', help='XML RPC service location')
         add('-C', '--ca_path', '--capath', dest='ca_path', help='Path do a directory containing PEM encoded CA files')
         add('-c', '--ca_file', '--cafile', dest='ca_file', help='Path do a file containing PEM encoded CA certificates')
@@ -80,9 +79,11 @@ class FreeIPAAuthenticator(certbot.plugins.dns_common.DNSAuthenticator):
         host = ipalib.api.Command.host_show(common_name)['result']
         principals = host['krbprincipalname']
         fqdn = host['fqdn']
+
         # Create unique list of FQDNs from principals and hostname (CSR Subject)
         subjects = set(list(fqdn) + [match.group(1) for principal in principals for match in [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)] if match])
-
+        logger.debug('Requesting certificate for following subjects')
+        logger.debug(subjects)
         # Find the DNS Zone to add/modify records to/in
         for subject_alt_name in subjects:
             dns_zone_candidate = dns.name.from_text(subject_alt_name)
@@ -98,6 +99,20 @@ class FreeIPAAuthenticator(certbot.plugins.dns_common.DNSAuthenticator):
 
     def cleanup(self, domain, validation_name, validation):
         pass
+
+#@zope.interface.implementer(certbot.interfaces.IInstaller)
+#@zope.interface.provider(certbot.interfaces.IPluginFactory)
+#class Installer(certbot.plugins.common.Plugin):
+#    """Certmonger Installer."""
+#
+#    description = __doc__.strip().split("\n", 1)[0]
+#
+#    print()
+
+
+
+    # Implement all methods from IInstaller, remembering to add
+    # "self" as first argument, e.g. def get_all_names(self)...
 
 
 def main(self):

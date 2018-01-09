@@ -19,7 +19,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 
 # Dependencies
 required_modules = ['ipalib', 'ipaclient', 'jinja2', 'cryptography',
-        'dnspython', 'acme', 'certbot', 'zope.interface' ]
+        'dnspython', 'acme', 'certbot', 'zope.interface','pyasn1-modules>=0.1.5' ]
 
 setup(
     name='cerlet',
@@ -27,7 +27,7 @@ setup(
     # Versions should comply with PEP440.  For a discussion on single-sourcing
     # the version across setup.py and the project code, see
     # https://packaging.python.org/en/latest/single_source_version.html
-    version='0.0.4',
+    version='0.0.5',
 
     description="CertBot FreeIPA Authenticator plugin and Certmonger helper for Let's Encrypt",
     long_description=long_description,
@@ -123,8 +123,8 @@ setup(
         'console_scripts': [
             'cerlet=cerlet:main',
         ],
-            'certbot.plugins': [
-            'cerlet_authenticator = certbot_example_plugins:Authenticator',
+        'certbot.plugins': [
+            'ipa = cerlet:Authenticator',
         ],
     },
 )
