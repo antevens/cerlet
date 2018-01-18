@@ -41,7 +41,7 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
         # Set up IPA API connection
         logger.info('Setting up IPA Connection using kerberos credentials')
         try:
-            ipalib.api.bootstrap_with_global_options(context='cerlet')
+            ipalib.api.bootstrap_with_global_options(context=__name__)
             ipalib.api.finalize()
         except ipalib.errors.KerberosError:
             logger.exception('Exception occurred authenticating with IPA server')
@@ -57,7 +57,11 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
         dns_zone_candidate = dns.name.from_text(domain)
         while True:
             try:
-                ipalib.api.Command.dnszone_show(unicode(dns_zone_candidate.to_text()))
+                ipalib.api.Command.dnszone_show(idnsname=unicode(dns_zone_candidate.to_text()))
+                record = dns.name.from_text(validation_domain_name).relativize(dns_zone_candidate)
+                ipalib.api.Command.dnsrecord_add(dnszoneidnsname=unicode(dns_zone_candidate.to_text()),
+                        idnsname=unicode(record), txtrecord=validation)
+                print(record)
                 break
             except (ipalib.errors.NotFound, ipalib.errors.ConversionError):
                 logger.debug('Unable to find Zone: {0}, checking for parent'.format(dns_zone_candidate.to_text(omit_final_dot=True)))
