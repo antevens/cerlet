@@ -11,6 +11,13 @@ import ipalib
 import re
 import zope
 
+#from acme import challengesd
+#from certbot import errors
+#from certbot import interfaces
+#from certbot.display import ops
+#from certbot.display import util as display_util
+#from certbot.plugins import common
+
 __version__ = '0.0.5'
 
 # Set up logging
@@ -20,7 +27,6 @@ logger = logging.getLogger(__name__)
 IPADDRESS_PATTERN = re.compile('(?:host/|\s|^)*((([2][5][0-5]\.)|([2][0-4][0-9]\.)|([0-1]?[0-9]?[0-9]\.)){3}(([2][5][0-5])|([2][0-4][0-9])|([0-1]?[0-9]?[0-9])))(?:@|\s|$)*')
 FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]{2,})(?:@|\s)*')
 
-
 @zope.interface.implementer(certbot.interfaces.IAuthenticator)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
 class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
@@ -28,8 +34,12 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
 
     description = __doc__.strip().split("\n", 1)[0]
 
-    def __init__(self, *args, **kwargs):
+    def more_info(self):
+        return self.__doc__
+
+    def _setup_credentials(self):
         # Set up IPA API connection
+        logger.info('Setting up IPA Connection using kerberos credentials')
         try:
             ipalib.api.bootstrap_with_global_options(context='cerlet')
             ipalib.api.finalize()
@@ -42,10 +52,85 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
         else:
             ipalib.api.Backend.rpcclient.connect()
 
-        super(Authenticator, self).__init__(*args, **kwargs)
+    def _perform(self, domain, validation_domain_name, validation):  # pragma: no cover
+        logger.debug('Adding DNS Records {0} to zone: {1} with value: {2}'.format(validation_domain_name, domain, validation))
+        dns_zone_candidate = dns.name.from_text(domain)
+        while True:
+            try:
+                ipalib.api.Command.dnszone_show(unicode(dns_zone_candidate.to_text()))
+                break
+            except (ipalib.errors.NotFound, ipalib.errors.ConversionError):
+                logger.debug('Unable to find Zone: {0}, checking for parent'.format(dns_zone_candidate.to_text(omit_final_dot=True)))
+                try:
+                    dns_zone_candidate = dns_zone_candidate.parent()
+                except dns.name.NoParent:
+                    message = 'Unable to find DNS Zone on IPA server'
+                    logger.exception(message)
+                    raise ipalib.errors.NotFound(format=None, message=message.decode())
 
-    def get_chall_pref(self, domain):  # pylint: disable=missing-docstring,no-self-use,unused-argument
-        return [certbot.challenges.DNS01]
+        print(dns_zone_candidate.to_text())
+
+        #request = asn1crypto.csr.CertificationRequest.load(der_bytes)
+        #info = request['certification_request_info']
+        #subject = info['subject'].native
+        #common_name = subject['common_name']
+        #host = ipalib.api.Command.host_show(common_name)['result']
+        #principals = host['krbprincipalname']
+        #fqdn = host['fqdn']
+
+        # Create unique list of FQDNs from principals and hostname (CSR Subject)
+        #subjects = set(list(fqdn) + [match.group(1) for principal in principals for match in [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)] if match])
+        #logger.debug('Requesting certificate for following subjects')
+        #logger.debug(subjects)
+        # Find the DNS Zone to add/modify records to/in
+
+    def _cleanup(self, domain, validation_domain_name, validation):
+        logger.info('Should be cleaning up')
+        pass
+
+@zope.interface.implementer(certbot.interfaces.IInstaller)
+@zope.interface.provider(certbot.interfaces.IPluginFactory)
+class Installer(certbot.plugins.common.Plugin):
+    """Stdout installer."""
+
+    description = "Stdout Installer"
+
+    def prepare(self):
+        pass  # pragma: no cover
+
+    def more_info(self):
+        return "Installer that only prints to stdout"
+
+    def get_all_names(self):
+        return []
+
+    def deploy_cert(self, domain, cert_path, key_path,
+                    chain_path=None, fullchain_path=None):
+        pass  # pragma: no cover
+
+    def enhance(self, domain, enhancement, options=None):
+        pass  # pragma: no cover
+
+    def supported_enhancements(self):
+        return []
+
+    def save(self, title=None, temporary=False):
+        pass  # pragma: no cover
+
+    def rollback_checkpoints(self, rollback=1):
+        pass  # pragma: no cover
+
+    def recovery_routine(self):
+        pass  # pragma: no cover
+
+    def view_config_changes(self):
+        pass  # pragma: no cover
+
+    def config_test(self):
+        pass  # pragma: no cover
+
+    def restart(self):
+        pass  # pragma: no cover
 
     @classmethod
     def add_parser_arguments(cls, add, default_propagation_seconds=10):
@@ -71,34 +156,8 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
 
         return "\n".join(line[4:] for line in __doc__.strip().split("\n"))
 
-    def perform(self, domain, validation_name, validation):
-        request = asn1crypto.csr.CertificationRequest.load(der_bytes)
-        info = request['certification_request_info']
-        subject = info['subject'].native
-        common_name = subject['common_name']
-        host = ipalib.api.Command.host_show(common_name)['result']
-        principals = host['krbprincipalname']
-        fqdn = host['fqdn']
-
-        # Create unique list of FQDNs from principals and hostname (CSR Subject)
-        subjects = set(list(fqdn) + [match.group(1) for principal in principals for match in [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)] if match])
-        logger.debug('Requesting certificate for following subjects')
-        logger.debug(subjects)
-        # Find the DNS Zone to add/modify records to/in
-        for subject_alt_name in subjects:
-            dns_zone_candidate = dns.name.from_text(subject_alt_name)
-            while True:
-                try:
-                    ipalib.api.Command.dnszone_show(dns_zone_candidate.to_text())
-                    break
-                except ipalib.errors.NotFound:
-                    try:
-                        dns_zone_candidate = dns_zone_candidate.parent()
-                    except dns.name.NoParent:
-                        raise ipalib.errors.NotFound('Unable to find DNS Zone on IPA server')
-
-    def cleanup(self, domain, validation_name, validation):
-        pass
+#    def cleanup(self, domain, validation_name, validation):
+#        pass
 
 #@zope.interface.implementer(certbot.interfaces.IInstaller)
 #@zope.interface.provider(certbot.interfaces.IPluginFactory)
