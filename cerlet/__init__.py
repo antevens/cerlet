@@ -34,6 +34,11 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
 
     description = __doc__.strip().split("\n", 1)[0]
 
+    def __init__(self, *args, **kwargs):
+        # Maps provided domains to IPA zones
+        self.zone_map = {}
+        super(Authenticator, self).__init__(*args, **kwargs)
+
     def more_info(self):
         return self.__doc__
 
@@ -59,9 +64,11 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
             try:
                 ipalib.api.Command.dnszone_show(idnsname=unicode(dns_zone_candidate.to_text()))
                 record = dns.name.from_text(validation_domain_name).relativize(dns_zone_candidate)
-                ipalib.api.Command.dnsrecord_add(dnszoneidnsname=unicode(dns_zone_candidate.to_text()),
-                        idnsname=unicode(record), txtrecord=validation)
-                print(record)
+                try:
+                    ipalib.api.Command.dnsrecord_add(dnszoneidnsname=unicode(dns_zone_candidate.to_text()), idnsname=unicode(record), txtrecord=validation)
+                except ipalib.errors.EmptyModlist:
+                    logger.warning('DNS entry already exists: {0} with value: {1}'.format(record, validation))
+                self.zone_map[validation_domain_name] = (dns_zone_candidate, record)
                 break
             except (ipalib.errors.NotFound, ipalib.errors.ConversionError):
                 logger.debug('Unable to find Zone: {0}, checking for parent'.format(dns_zone_candidate.to_text(omit_final_dot=True)))
@@ -72,7 +79,6 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
                     logger.exception(message)
                     raise ipalib.errors.NotFound(format=None, message=message.decode())
 
-        print(dns_zone_candidate.to_text())
 
         #request = asn1crypto.csr.CertificationRequest.load(der_bytes)
         #info = request['certification_request_info']
@@ -89,8 +95,8 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
         # Find the DNS Zone to add/modify records to/in
 
     def _cleanup(self, domain, validation_domain_name, validation):
-        logger.info('Should be cleaning up')
-        pass
+        logger.debug('Removing DNS entry: {0} to zone: {1} with value: {2}'.format(validation_domain_name, domain, validation))
+        ipalib.api.Command.dnsrecord_del(dnszoneidnsname=unicode(self.zone_map[validation_domain_name][0].to_text()), idnsname=unicode(self.zone_map[validation_domain_name][1]), txtrecord=validation)
 
 @zope.interface.implementer(certbot.interfaces.IInstaller)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
