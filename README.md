@@ -1,6 +1,6 @@
 # CerLet is a Certbot plugin and CertMonger Helper
 
-WORK IN PROGRESS, INCOMPLETE!
+# WORK IN PROGRESS, INCOMPLETE!
 
 CertLet is both a Certbot plugin to allow IPA (FreeIPA/Redhat Satellite) DNS
 authentication for authentication of and a Certmonger Helper to allow FreeIPA
@@ -14,14 +14,9 @@ Due to using DNS based authentication certificates can be issued for private
 servers as well as public ones without any service interruptions. This also
 allows certificates to include multiple principals or up to 99 host/DNS names.
 
+# Steps to install
 
-# Probably not valid for CertBot plugin style
-#This package includes python libraries which will be installed in the default
-#site-packages directory of your python distribution (or virtualenv)and an entry
-#point script that will be installed under /usr/libexec/certmonger.
-
-
-#Steps to set up a development environment on a Fedora box:
+# Steps to set up a development environment on a Fedora box:
 umask 0002
 sudo dnf update -y
 sudo dnf -y install wget git gcc openldap-devel krb5-devel
