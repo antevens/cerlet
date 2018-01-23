@@ -16,6 +16,8 @@ allows certificates to include multiple principals or up to 99 host/DNS names.
 
 # Steps to install
 
+ sudo getcert add-ca -c LetsEncrypt -e $(which cerlet)
+
 # Steps to set up a development environment on a Fedora box:
 umask 0002
 sudo dnf update -y
