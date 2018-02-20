@@ -41,7 +41,16 @@ logger = logging.getLogger(__name__)
 #FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]{2,})(?:@|\s)*')
 
 class CertMongerAction(object):
-    """ Represents an action requested by Certmonger """
+    """ Represents an action requested by Certmonger
+
+        * (not set)
+        To ease troubleshooting, my suggestion is to treat the CERTMONGER_OPERATION
+        not being set as if it was set to SUBMIT, or POLL if a cookie value is passed
+        to your helper via a command-line option.
+        * Anything else.
+        For future-proofing, exit with status 6.
+
+    """
     # Supported Exit Codes
     EXIT_ISSUED = 0
     EXIT_WAIT = 1
@@ -53,6 +62,16 @@ class CertMongerAction(object):
 
     def __init__(self):
         pass
+
+    def load_environment_variables(pattern='CERTMONGER'):
+        """ Loads environment variables matching a pattern """
+        matches = {}
+        for key, value in os.environ.items():
+            if pattern in key:
+                matches[key] = value
+
+        return matches
+
 
 
 class SubmitAction(CertMongerAction):
@@ -166,7 +185,7 @@ class SubmitAction(CertMongerAction):
         request_email=None,  # Alternative email addresses
         request_hostname=None,  # Alternative host names
         request_principal=None,  # Alternative principals
-        request_ip_address=None  # Alternative ip addresses
+        request_ip_address=None,  # Alternative ip addresses
         ca_profile=None,  # Name of profile, template or certtype
         old_certificate=None,  # Previously issued certificate to be replaced
         ca_nickname=None,  # CA short name, e.g. test or prod (default)
@@ -176,6 +195,7 @@ class SubmitAction(CertMongerAction):
 #        spki=None,  # Signed Public Key Info
 #        key_type=None,  # Key type included in the signing request
         ):
+        pass
 
 class PollAction(CertMongerAction):
     """
@@ -227,7 +247,7 @@ class RequestRequirementsAction(CertMongerAction):
     def __init__(self):
         pass
 
-class RequestRenewRequirementsAction(RequestRequirements):
+class RequestRenewRequirementsAction(RequestRequirementsAction):
     """
     Return list of required arguments for SUBMIT or POLL when renewing an
     already issues certificate.
@@ -295,20 +315,6 @@ class FetchRootsAction(CertMongerAction):
 
     def __init__(self):
         pass
-
-
-
-
-
-* (not set)
-  To ease troubleshooting, my suggestion is to treat the CERTMONGER_OPERATION
-  not being set as if it was set to SUBMIT, or POLL if a cookie value is passed
-  to your helper via a command-line option.
-* Anything else.
-  For future-proofing, exit with status 6.
-
-
-
 
 
 
@@ -466,15 +472,6 @@ class Installer(certbot.plugins.common.Plugin):
 
     # Implement all methods from IInstaller, remembering to add
     # "self" as first argument, e.g. def get_all_names(self)...
-
-def load_environment_variables(pattern='CERTMONGER'):
-    """ Loads environment variables matching a pattern """
-    matches = {}
-    for key, value in os.environ.items():
-        if pattern in key:
-            matches[key] = value
-
-    return matches
 
 def main():
     """ Entry point when run directly """
