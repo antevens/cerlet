@@ -63,6 +63,12 @@ class CertMongerAction(object):
     def __init__(self):
         pass
 
+    @staticmethod
+    def _raise(exception):
+        """ Raises the provided exception """
+        raise exception
+
+    @staticmethod
     def load_environment_variables(pattern='CERTMONGER'):
         """ Loads environment variables matching a pattern """
         matches = {}
@@ -72,250 +78,114 @@ class CertMongerAction(object):
 
         return matches
 
+    @classmethod
+    def operation_factory(cls, operation):
+        """
+        Returns the appopriate method for an operation as they are
+        specified by CertMonger in environment variables.
+        """
+        valid_operations = {'SUBMIT':cls.submit,
+                            'POLL':cls.poll,
+                            'IDENTIFY':cls.identify,
+                            'GET-NEW-REQUEST-REQUIREMENTS':cls.requirements(renew=False),
+                            'GET-RENEW-REQUEST-REQUIREMENTS':cls.requirements(renew=True),
+                            'GET-SUPPORTED-TEMPLATES':cls.templates(default_only=False),
+                            'GET-DEFAULT-TEMPLATE':cls.template(default_only=True),
+                            'FETCH-SCEP-CA-CAPS':cls._raise(NotImplementedError) ,
+                            'FETCH-SCEP-CA-CERTS':cls._raise(NotImplementedError),
+                            'FETCH-ROOTS':cls.get_ca_root_certs()
+
+    def submit(self, csr, ca_profile=None, ca_nickname=None, ca_issuer=None):
+        """
+        Accepts a single Certificate Signing Request, PKCS#10/PEM encoded
+
+        First time enrollment requested by Certmonger
+
+        Keyword arguments:
+
+        csr -- Enrollment request in PEM form. PKCS#10 format, PEM encoded
+        ca_profile -- Name of enrollment profile/template/certtype
+        ca_nickname --  Name by which the CA is known, and would have been specified to the -c
+            option to the "getcert" command. For example "prod" or "test"
+        ca_issuer --  Requested issuer for enrollment
+
+        Issues certificates will be returned in PEM encoded x.509 format
+        and an exit status of 0 will be returned.
+
+        If the certificates can't be issued immediately a "cookie" value/token
+        will be returned and an exit status of 1 returned. The requestor is
+        free to try again at their convenience presenting the cookie/token.
+
+        If the request is rejected an error will returned along with an exit
+        status of 2.
+
+        If there was a connection or networking exception the error will be
+        returned along with an exit status of 3.
+
+        If additional data is required the specific error will be returned
+        along with an exit status of 4.
 
 
-class SubmitAction(CertMongerAction):
-    """
-    First time enrollment requested by Certmonger
+        * If the client should wait for a specific period of time (for example, if
+            the CA has told it when to try again), output a delay size in seconds, a
+            newline, and a "cookie" value, and exit with status 5.  The daemon will try
+            again after the specified amount of time has passed.
 
-    * "SUBMIT"
-    This is called the first time the daemon attempts to send an enrollment
-    request to a CA.  The signing data, in PEM form, is provided in the
-    environment.  Some of the data from the request is also broken out and
-    provided in the environment:
-    * CERTMONGER_REQ_SUBJECT
-        The subject name from the request, in text form.
-    * CERTMONGER_REQ_EMAIL
-        Any rfc822Name subject alt name values from the request.
-    * CERTMONGER_REQ_HOSTNAME
-        Any dNSName subject alt name values from the request.
-    * CERTMONGER_REQ_PRINCIPAL
-        Any Kerberos principal name subject alt name values from the request.
-    * CERTMONGER_CA_PROFILE
-        The name of the enrollment profile/template/certtype to use, if one
-        was specified.
-    * CERTMONGER_CSR
-        The actual enrollment request, PKCS#10 format, PEM-encoded.
-    * CERTMONGER_CERTIFICATE
-        An older certificate, if we were previously issued one.
-    These are also present starting with version 0.73:
-    * CERTMONGER_CA_NICKNAME
-        The name by which the CA is known, and would have been specified to the -c
-        option to the "getcert" command.  If your helper is called in multiple CA
-        configurations, you may want to use this value to distinguish between them
-        in order to provide different behavior.
-    * CERTMONGER_SPKAC
-        The signing request as a signed public key and challenge (SPKAC).
-    * CERTMONGER_SPKI
-        The subjectPublicKeyInfo field from the signing request.
-    * CERTMONGER_KEY_TYPE
-        The type of key included in the signing request.
-    These may also be present starting with version 0.77, though you probably
-    won't use them:
-    * CERTMONGER_SCEP_CA_IDENTIFIER
-        An identifier to pass to an SCEP server when requesting its capabilities
-        list or copies of it and its CA's certificate.
-    * CERTMONGER_PKCSREQ
-        An SCEP PKCSReq pkiMessage.  If the daemon is attempting to change keys,
-        this will be signed with the old key.
-    * CERTMONGER_PKCSREQ_REKEY
-        An SCEP PKCSReq pkiMessage.  If the daemon is attempting to change keys,
-        this will be signed with the new key, otherwise it is not set.
-    * CERTMONGER_GETCERTINITIAL
-        An SCEP GetCertInitial pkiMessage.  If the daemon is attempting to change
-        keys, this will be signed with the old key.
-    * CERTMONGER_GETCERTINITIAL_REKEY
-        An SCEP GetCertInitial pkiMessage.  If the daemon is attempting to change
-        keys, this will be signed with the new key, otherwise it is not set.
-    * CERTMONGER_SCEP_RA_CERTIFICATE
-        The SCEP server's RA certificate.
-    * CERTMONGER_SCEP_CA_CERTIFICATE
-        The SCEP server's CA certificate.
-    * CERTMONGER_SCEP_CERTIFICATES
-        Additional certificates in the SCEP server's certifying chain.
-    These are also present starting with version 0.78:
-    * CERTMONGER_REQ_IP_ADDRESS
-        Any iPAddress subject alt name values from the request.
-    These are also present starting with version 0.79:
-    * CERTMONGER_CA_ISSUER
-        The requested issuer for enrollment.
-    The helper is expected to use this information, along with whatever
-    credentials it has or is passed on the command line, to send the signing
-    request to the CA.
+        * If the CA indicates that the client needs to try again using a different
+            key pair in the signing request (for example, if its policy limits the
+            number of times a particular key pair can be enrolled, or the length of
+            time one can be in service), exit with status 17.  The daemon will generate
+            a new key pair and try again.
 
+        * If the helper does not understand what is being asked of it, exit with
+            status 6.  You should never return this value for "SUBMIT" or "POLL", but
+            it is mentioned here so that we can refer to this list later.
+        """
 
-    * If a certificate is issued, output it in PEM form and exit with status 0.
-        See footnote 1 for information about formatting the result.
+    def poll(self, cookie):
+        """
+        Poll status of previously submitted request
 
-    * If the client should wait for a period of time, output a "cookie" value and
-        exit with status 1.  The daemon will try again later at a time of its
-        choosing (the default is currently 7 days).
+        Keyword arguments:
 
-    * If the request was rejected outright, output an error message, and exit
-        with status 2.
+        cookie -- A cookie/token to identify a previously submitted request
 
-    * If there was an error connecting to the server, output an error message and
-        exit with status 3.  The daemon will try again later.
+        If the submit method previously returned with status 1 or 5, this can
+        be called to retry.
 
-    * If the helper requires additional configuration data, output an error
-        message and exit with status 4.
-
-    * If the client should wait for a specific period of time (for example, if
-        the CA has told it when to try again), output a delay size in seconds, a
-        newline, and a "cookie" value, and exit with status 5.  The daemon will try
-        again after the specified amount of time has passed.
-
-    * If the helper needs SCEP data, exit with status 16.  Your helper probably
-        won't need to do this.
-
-    * If the CA indicates that the client needs to try again using a different
-        key pair in the signing request (for example, if its policy limits the
-        number of times a particular key pair can be enrolled, or the length of
-        time one can be in service), exit with status 17.  The daemon will generate
-        a new key pair and try again.
-
-    * If the helper does not understand what is being asked of it, exit with
-        status 6.  You should never return this value for "SUBMIT" or "POLL", but
-        it is mentioned here so that we can refer to this list later.
-    """
-
-    def __init__(self,
-        csr,  # PKCS#10/PEM encoded certificate signing request
-        request_subject=None,  # Text form of request subject from CSR
-        request_email=None,  # Alternative email addresses
-        request_hostname=None,  # Alternative host names
-        request_principal=None,  # Alternative principals
-        request_ip_address=None,  # Alternative ip addresses
-        ca_profile=None,  # Name of profile, template or certtype
-        old_certificate=None,  # Previously issued certificate to be replaced
-        ca_nickname=None,  # CA short name, e.g. test or prod (default)
-        ca_issuer=None,  # URI to CA issuer
-         # TBD
-#        spkac=None,  # Signed Public Key or Challenge
-#        spki=None,  # Signed Public Key Info
-#        key_type=None,  # Key type included in the signing request
-        ):
+        Returned certificates and exit statuses are the same as the submit
+        method.
+        """
         pass
 
-class PollAction(CertMongerAction):
-    """
-    Poll status of previously submitted request
+    @classmethod
+    def identify():
+        """
+        Outputs the version of the helper and returns an exit status of 0
+        """
+        return __version__
 
-    * "POLL"
-    If the helper previously returned with status 1 or 5, this is the daemon
-    trying again.  The same information supplied for "SUBMIT" requests will be
-    provided in the environment.  Additionally, the "CERTMONGER_CA_COOKIE"
-    variable will hold the cookie value returned by the previous call to the
-    helper.  If your process requires multiple steps, the cookie is suitable for
-    keeping track of which step is next.
-    If your helper never returns status 1 or 5, this will not be used, and you
-    need not implement logic for it.
-    Report results as you would for the "SUBMIT" operation.
-    """
-
-    def __init__(self):
+    def requirements(self, renew=False):
+        """
+        Returns a list of required arguments/environment variables for the
+        poll and submit methods, if renew is true it lists those required when
+        renewing a certificate rather than requesting a new one.
+        """
         pass
 
-class IdentifyAction(CertMongerAction):
-    """
-    Poll status of previously submitted request
-
-    * "IDENTIFY":
-    Output version information for your helper, and exit with status 0.  This
-    information is tracked by the daemon and included in the output of the
-    "getcert list-cas -v" command.  Optional.
-    """
-
-    def __init__(self):
+    @property
+    def templates(default_only=False):
+        """
+        Returns list of all profiles/templates/cert-types, by default all
+        supported templates are returned.
+        """
         pass
 
-class RequestRequirementsAction(CertMongerAction):
-    """
-    Return list of required arguments for SUBMIT or POLL actions
-
-
-    * "GET-NEW-REQUEST-REQUIREMENTS"
-    Output a list of environment variable names which are expected to have
-    non-empty values when the helper is run in SUBMIT or POLL mode.  The list can
-    be either comma- or newline-separated.
-    At some point, we'll teach getcert to instruct people to supply values that
-    are required by the CA that they intend to use if it finds that they didn't
-    supply one of these.
-    Support for this operation is optional.
-    """
-
-    def __init__(self):
+    def get_ca_root_certs():
+        """
+        Return a dictionary of nickname/cert with the cert in PEM format.
+        """
         pass
-
-class RequestRenewRequirementsAction(RequestRequirementsAction):
-    """
-    Return list of required arguments for SUBMIT or POLL when renewing an
-    already issues certificate.
-
-    * "GET-RENEW-REQUEST-REQUIREMENTS"
-    Just like "GET-NEW-REQUEST-REQUIREMENTS", except for cases when the client
-    attempts to renew an already-issued certificate.  In most cases, your helper
-    will want to do the same thing for "GET-RENEW-REQUEST-REQUIREMENTS" as it
-    does for "GET-NEW-REQUEST-REQUIREMENTS"
-    Support for this operation is optional.
-    """
-
-    def __init__(self):
-        pass
-
-class GetSupportedTemplatesAction(CertMongerAction):
-    """
-    Return a list of supported profiles, templates or cert types
-
-    * "GET-SUPPORTED-TEMPLATES"
-    Output a list of supported profile/template/certtype names offered and
-    recognized by the CA.  The list can be either comma- or newline-separated.
-    At some point, we'll teach getcert to validate values it receives for its -T
-    option against this list.
-    Support for this operation is optional.
-    """
-
-    def __init__(self):
-        pass
-
-class GetDefaultTemplateAction(CertMongerAction):
-    """
-    Return default profile (template/certtype)
-
-    * "GET-DEFAULT-TEMPLATE"
-    Output a single supported profile/template/certtype name offered and
-    recognized by the CA.  If there is no default, output nothing.
-    At some point, we'll teach getcert to use this value as a default if it is
-    not passed the -T option.
-    Support for this operation is optional.
-    """
-
-    def __init__(self):
-        pass
-
-class FetchRootsAction(CertMongerAction):
-    """
-    Return default profile (template/certtype)
-
-    * "FETCH-ROOTS"
-    If the helper has a way to read the CA's root certificate over an
-    authenticated and integrity-protected channel, output a suggested nickname,
-    the certificate in PEM format.  If there are other trusted certificates,
-    follow that with a blank line and one or more nickname/certificate sequences.
-    If there are other certificates which the client might need (for example,
-    others in the certifying chain), repeat for those.  Note that if there are
-    chain certificates but no supplemental root certificates, the root
-    certificate should be followed by two blank lines.
-    Support for this operation is optional.  If you can not guarantee that the
-    data produced is authenticated and has not been tampered with, do not
-    implement this.
-    The format described here is recognized to be error-prone and will be
-    replaced with a JSON object in the future.
-    """
-
-    def __init__(self):
-        pass
-
 
 
 @zope.interface.implementer(certbot.interfaces.IAuthenticator)
@@ -475,6 +345,9 @@ class Installer(certbot.plugins.common.Plugin):
 
 def main():
     """ Entry point when run directly """
+    env = CertMongerAction.load_environment_variables()
+    if env:
+
     operation = os.getenv("CERTMONGER_OPERATION")
     from pkg_resources import load_entry_point
     sys.argv += ['--authenticator', 'cerlet:ipa']
