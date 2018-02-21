@@ -21,7 +21,7 @@ allows certificates to include multiple principals or up to 99 host/DNS names.
 # Steps to set up a development environment on a Fedora box:
 umask 0002
 sudo dnf update -y
-sudo dnf -y install wget git gcc openldap-devel krb5-devel
+sudo dnf -y install wget git gcc openldap-devel krb5-devel libffi-devel
 sudo dnf -y install ca-certificates
 sudo dnf install python3-virtualenv
 sudo wget https://letsencrypt.org/certs/isrgrootx1.pem -O /etc/pki/ca-trust/source/anchors/isrgrootx2.pem
