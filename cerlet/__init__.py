@@ -12,16 +12,19 @@ Add documentation for certbot plugins
 """
 
 import certbot
+import certbot.main
 import certbot.plugins
 import certbot.plugins.dns_common
 import certbot.interfaces
 import dns
 import dns.name
 import logging
+import os
 import ipalib
 import re
 import sys
 import zope
+import zope.component
 import zope.interface
 
 #from acme import challengesd
@@ -60,11 +63,45 @@ class CertMongerAction(object):
     EXIT_WAIT_WITH_DELAY = 5
     EXIT_OPERATION_NOT_SUPPORTED = 6
 
-    def __init__(self):
-        pass
+    def __init__(self, config_dir='/etc/certmonger/letsencrypt',
+                       work_dir='/var/lib/certmonger/letsencrypt',
+                       log_dir='/var/log/letsencrypt',
+                       email=None):
+        email = email or self.environment['CERTMONGER_CSR']
+        logger.debug('Config dir set to: {0}'.format(config_dir)
+        logger.debug('Work dir set to: {0}'.format(work_dir)
+        logger.debug('Email set to: {0}'.format(email)
+        namespace = {'config_dir': config_dir,
+                     'work_dir': work_dir,
+                     'logs_dir': log_dir,
+                     'email': email,
+                     'register_unsafely_without_email': True}
+        self.config = configuration.NamespaceConfig(namespace)
+
+        # Load and store relevant environment variables
+        environment = self.load_environment_variables()
+
+        # Set up logging to use syslog
+        logger.setLevel(logging.DEBUG)
+        handler = logging.handlers.SysLogHandler(address = '/dev/log')
+        formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+
+        # Configure certbot plugins
+        certbot_plugins = certbot.plugins.disco.PluginsRegistry.find_all()
+        logger.debug('Certbot version: {0}'.format(certbot.__version__))
+        logger.debug('Discovered plugins: {0}'.format(plugins))
+
+        # Set Reporter, Displayer and Config
+        zope.component.provideUtility(self.config)
+        self.displayer = display_util.NoninteractiveDisplay(open(os.devnull, "w"))
+        zope.component.provideUtility(displayer)
+        self.report = reporter.Reporter(self.config)
+        zope.component.provideUtility(report)
 
     @staticmethod
-    def _raise(exception):
+    def _raise_not_implemented(exception=NotImplementedError):
         """ Raises the provided exception """
         raise exception
 
@@ -84,18 +121,23 @@ class CertMongerAction(object):
         Returns the appopriate method for an operation as they are
         specified by CertMonger in environment variables.
         """
+        logger.debug('Certmonger operation detected, evaluating environment variables and performing actions as requested')
         valid_operations = {'SUBMIT':cls.submit,
                             'POLL':cls.poll,
                             'IDENTIFY':cls.identify,
-                            'GET-NEW-REQUEST-REQUIREMENTS':cls.requirements(renew=False),
-                            'GET-RENEW-REQUEST-REQUIREMENTS':cls.requirements(renew=True),
-                            'GET-SUPPORTED-TEMPLATES':cls.templates(default_only=False),
-                            'GET-DEFAULT-TEMPLATE':cls.template(default_only=True),
-                            'FETCH-SCEP-CA-CAPS':cls._raise(NotImplementedError) ,
-                            'FETCH-SCEP-CA-CERTS':cls._raise(NotImplementedError),
-                            'FETCH-ROOTS':cls.get_ca_root_certs()
+                            'GET-NEW-REQUEST-REQUIREMENTS':cls.requirements,
+                            'GET-RENEW-REQUEST-REQUIREMENTS':cls.renew_requirements,
+                            'GET-SUPPORTED-TEMPLATES':cls.templates,
+                            'GET-DEFAULT-TEMPLATE':cls.default_template,
+                            'FETCH-SCEP-CA-CAPS':cls._raise_not_implemented,
+                            'FETCH-SCEP-CA-CERTS':cls._raise_not_implemented,
+                            'FETCH-ROOTS':cls.get_ca_root_certs}
+        return valid_operations[operation]()
 
-    def submit(self, csr, ca_profile=None, ca_nickname=None, ca_issuer=None):
+    def register(self, config=None):
+        certbot.main.register(config or self.config, unused_plugins=None)
+
+    def submit(self, csr=None, ca_profile=None, ca_nickname=None, ca_issuer=None):
         """
         Accepts a single Certificate Signing Request, PKCS#10/PEM encoded
 
@@ -141,8 +183,16 @@ class CertMongerAction(object):
             status 6.  You should never return this value for "SUBMIT" or "POLL", but
             it is mentioned here so that we can refer to this list later.
         """
+        logger.debug('Submitting certificate signing request')
+        csr = csr or self.environment['CERTMONGER_CSR']
+        ca_profile = ca_profile or self.environment['CERTMONGER_CA_PROFILE']
+        ca_nickname = ca_nickname or self.environment['CERTMONGER_CA_NICKNAME']
+        ca_issuer = ca_issuer or self.environment['CERTMONGER_CA_ISSUER']
 
-    def poll(self, cookie):
+        certbot.main.certonly(self.config, self.plugins)
+        certbot.main.renew_cert(self.config, self.plugins, lineage)
+
+    def poll(self, cookie=None):
         """
         Poll status of previously submitted request
 
@@ -156,13 +206,15 @@ class CertMongerAction(object):
         Returned certificates and exit statuses are the same as the submit
         method.
         """
-        pass
+        logger.debug('Polling for certificate signing request status')
+        cookie = cookie or self.environment['CERTMONGER_CA_COOKIE']
 
-    @classmethod
+    @staticmethod
     def identify():
         """
         Outputs the version of the helper and returns an exit status of 0
         """
+        logger.debug('Returning version of helper/plugin')
         return __version__
 
     def requirements(self, renew=False):
@@ -171,21 +223,29 @@ class CertMongerAction(object):
         poll and submit methods, if renew is true it lists those required when
         renewing a certificate rather than requesting a new one.
         """
-        pass
+        logger.debug('Returning list of required attributes/arguments')
 
-    @property
+        print('EMAIL')
+
+    def renew_requirements(self):
+        return self.requirements(renew=True)
+
     def templates(default_only=False):
         """
         Returns list of all profiles/templates/cert-types, by default all
         supported templates are returned.
         """
-        pass
+        logger.debug('Returning templates/profiles')
+
+    def default_template(self):
+        return self.templates(default_only=True)
+
 
     def get_ca_root_certs():
         """
         Return a dictionary of nickname/cert with the cert in PEM format.
         """
-        pass
+        logger.debug('Returning CA Root certificates')
 
 
 @zope.interface.implementer(certbot.interfaces.IAuthenticator)
@@ -347,8 +407,8 @@ def main():
     """ Entry point when run directly """
     env = CertMongerAction.load_environment_variables()
     if env:
-
-    operation = os.getenv("CERTMONGER_OPERATION")
+        print('env')
+        print(CertMongerAction.operation_factory(os.getenv('CERTMONGER_OPERATION')))
     from pkg_resources import load_entry_point
     sys.argv += ['--authenticator', 'cerlet:ipa']
     sys.exit(load_entry_point('certbot', 'console_scripts', 'certbot')())
