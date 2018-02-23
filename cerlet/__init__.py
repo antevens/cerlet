@@ -18,10 +18,13 @@ import certbot.plugins.dns_common
 import certbot.interfaces
 import dns
 import dns.name
+import grp
 import logging
 import os
+import pwd
 import ipalib
 import re
+import stat
 import sys
 import zope
 import zope.component
@@ -42,6 +45,70 @@ logger = logging.getLogger(__name__)
 # Patterns
 #IPADDRESS_PATTERN = re.compile('(?:host/|\s|^)*((([2][5][0-5]\.)|([2][0-4][0-9]\.)|([0-1]?[0-9]?[0-9]\.)){3}(([2][5][0-5])|([2][0-4][0-9])|([0-1]?[0-9]?[0-9])))(?:@|\s|$)*')
 #FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]{2,})(?:@|\s)*')
+
+
+class PermError(Exception):
+    """ Raised if permissions don't match specifications/requirments or unsafe permissions are found """
+    pass
+
+
+def check_dir_perms(path, dir_perm=stat.S_IWOTH, file_perm=stat.S_IWOTH, users=('root',), groups=('root',), recurse=True):
+    """
+    Check dir structure and verify only specified users/groups have access
+
+    If any directories have the dir_perm bits set we'll raise an error and the
+    same goes for files matching file_perm bits.
+
+    See check_permission for more info on how permission bit checking works.
+    """
+    directories = ((path, (), ()),) if not recurse else os.walk(path)
+    for dir_name, sub_dirs, files in directories:
+        attrib = os.stat(dir_name)
+        if attrib.st_uid not in [pwd.getpwnam(user).pw_uid for user in users]:
+            err_msg = 'Directory: "{0}" is owned by {1} which is not in the list of allowed users: "{2!s}"'
+            raise PermError(err_msg.format(dir_name, pwd.getpwuid(attrib.st_uid).pw_name, users))
+
+        if attrib.st_gid not in [grp.getgrnam(group).gr_gid for group in groups]:
+            err_msg = 'The group for directory: "{0}" is {1} which is not in the list of allowed groups: "{2!s}"'
+            raise PermError(err_msg.format(dir_name, grp.getgrgid(attrib.st_gid).gr_name, groups))
+
+        if check_permission(attrib.st_mode, dir_perm):
+            # Could add strmode for python one day and make nice human errors
+            err_msg = 'The permissions on directory: "{0}" are "{1!s}" and violate restriction "{2!s}"'
+            raise PermError(err_msg.format(dir_name, oct(attrib.st_mode), oct(dir_perm)))
+
+        for f in files:
+            file_attrib = os.stat(os.path.join(dir_name, f))
+            if check_permission(file_attrib.st_mode, file_perm):
+                # Could add strmode for python one day and make nice human errors
+                err_msg = 'The permissions on file: "{0}" are "{1!s}" and violate restriction "{2!s}"'
+                raise PermError(err_msg.format(os.path.join(dir_name, f), oct(file_attrib.st_mode), oct(file_perm)))
+
+
+def mkdirp(path, inherit_owner_group=False, permission_mode=None, strict=False):
+    """ Recursive mkdir (mkdir -p) """
+    try:
+        if permission_mode:
+            os.makedirs(path, permission_mode)
+        else:
+            os.makedirs(path)
+        logger.debug('Created directory: {0}'.format(path))
+        if inherit_owner_group is True:
+            match_owner_group(path, os.path.abspath(os.path.join(path, '../')))
+    except OSError as exc:
+        if exc.errno == errno.EEXIST and os.path.isdir(path):
+            if permission_mode and strict:
+                try:
+                    check_dir_perms(path,
+                                    dir_perm=permission_mode,
+                                    recurse=False)
+                except PermError:
+                    logger.debug('Provided path {0} exists and has incorrect permissions'.format(path))
+                    raise
+            pass
+        else:
+            raise
+
 
 class CertMongerAction(object):
     """ Represents an action requested by Certmonger
@@ -67,10 +134,21 @@ class CertMongerAction(object):
                        work_dir='/var/lib/certmonger/letsencrypt',
                        log_dir='/var/log/letsencrypt',
                        email=None):
-        email = email or self.environment['CERTMONGER_CSR']
+        # If no email is specified we try to get one from the request
+        email = email or self.environment['CERTMONGER_REQ_EMAIL']
+
+        # Log for debug purposes
+        logger.debug('Log dir (not used) set to: {0}'.format(log_dir)
         logger.debug('Config dir set to: {0}'.format(config_dir)
         logger.debug('Work dir set to: {0}'.format(work_dir)
         logger.debug('Email set to: {0}'.format(email)
+
+        # Create any directories which don't exist with correct
+        # permisisons/owner/group
+        for path in (config_dir, work_dir, log_dir):
+            mkdirp(path, permission_mode=0o700, strict=True)
+
+        # Create namespace to pass to config builder
         namespace = {'config_dir': config_dir,
                      'work_dir': work_dir,
                      'logs_dir': log_dir,
