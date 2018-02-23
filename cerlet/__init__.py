@@ -138,10 +138,10 @@ class CertMongerAction(object):
         email = email or self.environment['CERTMONGER_REQ_EMAIL']
 
         # Log for debug purposes
-        logger.debug('Log dir (not used) set to: {0}'.format(log_dir)
-        logger.debug('Config dir set to: {0}'.format(config_dir)
-        logger.debug('Work dir set to: {0}'.format(work_dir)
-        logger.debug('Email set to: {0}'.format(email)
+        logger.debug('Log dir (not used) set to: {0}'.format(log_dir))
+        logger.debug('Config dir set to: {0}'.format(config_dir))
+        logger.debug('Work dir set to: {0}'.format(work_dir))
+        logger.debug('Email set to: {0}'.format(email))
 
         # Create any directories which don't exist with correct
         # permisisons/owner/group
