@@ -12,6 +12,8 @@ Add documentation for certbot plugins
 """
 
 import certbot
+import certbot.account
+import certbot.constants
 import certbot.main
 import certbot.plugins
 import certbot.plugins.dns_common
@@ -165,10 +167,18 @@ class CertMongerAction(object):
     EXIT_WAIT_WITH_DELAY = 5
     EXIT_OPERATION_NOT_SUPPORTED = 6
 
-    def __init__(self, config_dir='/etc/certmonger/letsencrypt',
-                       work_dir='/var/lib/certmonger/letsencrypt',
-                       log_dir='/var/log/letsencrypt',
-                       email=None):
+    PATHS = {'config_dir':'/etc/certmonger/letsencrypt',
+             'work_dir':'/var/lib/certmonger/letsencrypt',
+             'log_dir':'/var/log/letsencrypt'}
+
+    defaults = certbot.constants.CLI_DEFAULTS
+
+    def __init__(self, paths=PATHS,
+                       email=None,
+                       key_size=4096,
+                       verify_ssl=True,
+                       user_agent='{0}/{1}'.format(__name__, __version__),
+                       server=certbot.constants.CLI_DEFAULTS['server']):
 
         # Load and store relevant environment variables
         self.environment = self.load_environment_variables()
@@ -179,52 +189,101 @@ class CertMongerAction(object):
                 email = self.environment['CERTMONGER_REQ_EMAIL']
             except KeyError:
                 email = None
+        self.defaults['email'] = email
 
-        # Log for debug purposes
-        logger.debug('Log dir (not used) set to: {0}'.format(log_dir))
-        logger.debug('Config dir set to: {0}'.format(config_dir))
-        logger.debug('Work dir set to: {0}'.format(work_dir))
-        logger.debug('Email set to: {0}'.format(email))
+        # Find all plugins and set
+        self.defaults['plugins'] = certbot.plugins.disco.PluginsRegistry.find_all()
+
+        # Override values as needed
+        self.defaults['accounts_dir'] = os.path.join(paths['config_dir'],
+                                                     certbot.constants.ACCOUNTS_DIR,
+                                                     self.environment['CERTMONGER_REQ_HOSTNAME'])
 
         # Create any directories which don't exist with correct
-        # permisisons/owner/group
-        for path in (config_dir, work_dir, log_dir):
+        # permisisons/owner/group and set in config
+        for key, path in paths.iteritems():
             mkdirp(path, permission_mode=0o700)
+            self.defaults[key] = path
+
+        # Create config object from defaults in certbot and assign defaults
+        Config = namedlist.namedlist('Config', ' '.join(self.defaults.keys()))
+        self.config = Config(**self.defaults)
+
+
+#        self.config = Config(server=server,
+#                             email=email,
+#                             strict_permissions=False,
+#                             register_unsafely_without_email=True,
+#                             dry_run=True,
+#                             rsa_key_size=key_size,
+#                             no_verify_ssl=not verify_ssl,
+#                             user_agent=user_agent,
+#                             eff_email=None,
+#                             configurator=None,
+#                             installer=None,
+#                             plugins=self.plugins)
+
+
+        # Set up Certbot Account Storage, at some point this should be moved
+        # and stored by IPA in LDAP. For now we create separate accounts per
+        # host and store details on the filesystem.
+        account_storage = certbot.account.AccountFileStorage(self.config)
+        accounts = account_storage.find_all()
+
+        # Assume there will only be one account per host and that it will never
+        # need to be updated with a new email address ...
+        if len(accounts) == 0:
+            # Register account with Let's Encrypt Server if needed, we always agree
+            # to the TOS terms (see lambda).
+            acc, acme = certbot.client.register(config=self.config,
+                                               account_storage=account_storage,
+                                               tos_cb=lambda *_,**__: True)
+
+            account_storage.save_regr(acc, acme)
+
+        # Set up Certbot Client Configuration
+
+        # Log for debug purposes
+#        logger.debug('Log dir (not used) set to: {0}'.format(log_dir))
+#        logger.debug('Config dir set to: {0}'.format(config_dir))
+#        logger.debug('Work dir set to: {0}'.format(work_dir))
+#        logger.debug('Email set to: {0}'.format(email))
+
 
         # Configure certbot plugins
-        self.plugins = certbot.plugins.disco.PluginsRegistry.find_all()
-        logger.debug('Certbot version: {0}'.format(certbot.__version__))
-        logger.debug('Discovered plugins: {0}'.format(self.plugins))
+#        self.plugins = certbot.plugins.disco.PluginsRegistry.find_all()
+#        logger.debug('Certbot version: {0}'.format(certbot.__version__))
+#        logger.debug('Discovered plugins: {0}'.format(self.plugins))
 
         # Create namespace to pass to config builder
-        NameSpace = namedlist.namedlist('NameSpace','domains config_dir work_dir logs_dir email register_unsafely_without_email http01_port tls_sni_01_port plugins configurator installer authenticator')
-        namespace = NameSpace(config_dir=config_dir,
-                              work_dir=work_dir,
-                              logs_dir=log_dir,
-                              email=email,
-                              http01_port=80,
-                              tls_sni_01_port=443,
-                              domains=('example.certbot.com',),
-                              plugins=self.plugins,
-                              configurator=None,
-                              installer=None,
-                              authenticator=None,
-                              register_unsafely_without_email=True)
-        self.config = certbot.configuration.NamespaceConfig(namespace)
+#        NameSpace = namedlist.namedlist('NameSpace','domains config_dir work_dir logs_dir email register_unsafely_without_email http01_port tls_sni_01_port plugins configurator installer authenticator')
+#        namespace = NameSpace(config_dir=config_dir,
+#                              work_dir=work_dir,
+#                              logs_dir=log_dir,
+#                              email=email,
+#                              http01_port=80,
+#                              tls_sni_01_port=443,
+#                              domains=('example.certbot.com',),
+#                              plugins=self.plugins,
+#                              configurator=None,
+#                              installer=None,
+#                              authenticator=None,
+#                              register_unsafely_without_email=True)
+#        self.config = certbot.configuration.NamespaceConfig(namespace)
 
         # Set up logging to use syslog
-        logger.setLevel(logging.DEBUG)
-        handler = logging.handlers.SysLogHandler(address = '/dev/log')
-        formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+#        logger.setLevel(logging.DEBUG)
+#        handler = logging.handlers.SysLogHandler(address = '/dev/log')
+#        formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
+#        handler.setFormatter(formatter)
+#        logger.addHandler(handler)
 
-        # Set Reporter, Displayer and Config
-        zope.component.provideUtility(self.config)
-        self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
-        zope.component.provideUtility(self.displayer)
-        self.report = certbot.reporter.Reporter(self.config)
-        zope.component.provideUtility(self.report)
+#        # Set Reporter, Displayer and Config
+#        zope.component.provideUtility(self.config)
+#        self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
+#        zope.component.provideUtility(self.displayer)
+#        self.report = certbot.reporter.Reporter(self.config)
+#        zope.component.provideUtility(self.report)
 
     @staticmethod
     def _raise_not_implemented(exception=NotImplementedError):
@@ -353,7 +412,7 @@ class CertMongerAction(object):
         """
         logger.debug('Returning list of required attributes/arguments')
 
-        print('EMAIL')
+        print('EMAIL and hostname at least')
 
     def renew_requirements(self):
         return self.requirements(renew=True)
