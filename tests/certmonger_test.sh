@@ -46,7 +46,8 @@ export CERTMONGER_CSR="$(<${csr_path})"
 #export CERTMONGER_CA_PROFILE
 #export CERTMONGER_CA_NICKNAME
 #export CERTMONGER_CA_ISSUER
-cerlet
+# Replace with something better for testing and prod
+/home/vagrant/Revisions/certbot/venv/bin/cerlet
 
 # Clean up
 rm -f "${key_path}"

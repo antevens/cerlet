@@ -19,7 +19,7 @@ with open(path.join(here, 'README.md'), encoding='utf-8') as f:
 
 # Dependencies
 required_modules = ['ipalib', 'ipaclient', 'jinja2', 'cryptography',
-        'dnspython', 'acme', 'certbot', 'zope.interface','pyasn1-modules>=0.1.5' ]
+        'dnspython', 'acme', 'certbot', 'namedlist', 'zope.interface','pyasn1-modules>=0.1.5' ]
 
 setup(
     name='cerlet',

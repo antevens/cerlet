@@ -16,10 +16,12 @@ import certbot.main
 import certbot.plugins
 import certbot.plugins.dns_common
 import certbot.interfaces
+import errno
 import dns
 import dns.name
 import grp
 import logging
+import namedlist
 import os
 import pwd
 import ipalib
@@ -51,6 +53,39 @@ class PermError(Exception):
     """ Raised if permissions don't match specifications/requirments or unsafe permissions are found """
     pass
 
+def check_permission(perm_mode, flags=stat.S_IWOTH):
+    """
+    Check if a bit is is set in an integer, very useful for checking if
+    a particular permission is set of a file by comparing os.stat.st.mode
+
+    Multiple modes can be combined by using by using the bitwise OR operator
+     e.g.
+    check_permission(0o754, stat.S_IROTH | stat.S_IWGRP)
+    -> True
+
+    Valid modes from stat:
+
+        S_ISUID = 04000
+        S_ISGID = 02000
+        S_ENFMT = S_ISGID
+        S_ISVTX = 01000
+        S_IREAD = 00400
+        S_IWRITE = 00200
+        S_IEXEC = 00100
+        S_IRWXU = 00700
+        S_IRUSR = 00400
+        S_IWUSR = 00200
+        S_IXUSR = 00100
+        S_IRWXG = 00070
+        S_IRGRP = 00040
+        S_IWGRP = 00020
+        S_IXGRP = 00010
+        S_IRWXO = 00007
+        S_IROTH = 00004
+        S_IWOTH = 00002
+        S_IXOTH = 00001
+    """
+    return bool(perm_mode & flags)
 
 def check_dir_perms(path, dir_perm=stat.S_IWOTH, file_perm=stat.S_IWOTH, users=('root',), groups=('root',), recurse=True):
     """
@@ -134,8 +169,16 @@ class CertMongerAction(object):
                        work_dir='/var/lib/certmonger/letsencrypt',
                        log_dir='/var/log/letsencrypt',
                        email=None):
+
+        # Load and store relevant environment variables
+        self.environment = self.load_environment_variables()
+
         # If no email is specified we try to get one from the request
-        email = email or self.environment['CERTMONGER_REQ_EMAIL']
+        if not email:
+            try:
+                email = self.environment['CERTMONGER_REQ_EMAIL']
+            except KeyError:
+                email = None
 
         # Log for debug purposes
         logger.debug('Log dir (not used) set to: {0}'.format(log_dir))
@@ -146,18 +189,28 @@ class CertMongerAction(object):
         # Create any directories which don't exist with correct
         # permisisons/owner/group
         for path in (config_dir, work_dir, log_dir):
-            mkdirp(path, permission_mode=0o700, strict=True)
+            mkdirp(path, permission_mode=0o700)
+
+        # Configure certbot plugins
+        self.plugins = certbot.plugins.disco.PluginsRegistry.find_all()
+        logger.debug('Certbot version: {0}'.format(certbot.__version__))
+        logger.debug('Discovered plugins: {0}'.format(self.plugins))
 
         # Create namespace to pass to config builder
-        namespace = {'config_dir': config_dir,
-                     'work_dir': work_dir,
-                     'logs_dir': log_dir,
-                     'email': email,
-                     'register_unsafely_without_email': True}
-        self.config = configuration.NamespaceConfig(namespace)
-
-        # Load and store relevant environment variables
-        environment = self.load_environment_variables()
+        NameSpace = namedlist.namedlist('NameSpace','domains config_dir work_dir logs_dir email register_unsafely_without_email http01_port tls_sni_01_port plugins configurator installer authenticator')
+        namespace = NameSpace(config_dir=config_dir,
+                              work_dir=work_dir,
+                              logs_dir=log_dir,
+                              email=email,
+                              http01_port=80,
+                              tls_sni_01_port=443,
+                              domains=('example.certbot.com',),
+                              plugins=self.plugins,
+                              configurator=None,
+                              installer=None,
+                              authenticator=None,
+                              register_unsafely_without_email=True)
+        self.config = certbot.configuration.NamespaceConfig(namespace)
 
         # Set up logging to use syslog
         logger.setLevel(logging.DEBUG)
@@ -166,17 +219,12 @@ class CertMongerAction(object):
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
-        # Configure certbot plugins
-        certbot_plugins = certbot.plugins.disco.PluginsRegistry.find_all()
-        logger.debug('Certbot version: {0}'.format(certbot.__version__))
-        logger.debug('Discovered plugins: {0}'.format(plugins))
-
         # Set Reporter, Displayer and Config
         zope.component.provideUtility(self.config)
-        self.displayer = display_util.NoninteractiveDisplay(open(os.devnull, "w"))
-        zope.component.provideUtility(displayer)
-        self.report = reporter.Reporter(self.config)
-        zope.component.provideUtility(report)
+        self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
+        zope.component.provideUtility(self.displayer)
+        self.report = certbot.reporter.Reporter(self.config)
+        zope.component.provideUtility(self.report)
 
     @staticmethod
     def _raise_not_implemented(exception=NotImplementedError):
@@ -200,16 +248,16 @@ class CertMongerAction(object):
         specified by CertMonger in environment variables.
         """
         logger.debug('Certmonger operation detected, evaluating environment variables and performing actions as requested')
-        valid_operations = {'SUBMIT':cls.submit,
-                            'POLL':cls.poll,
-                            'IDENTIFY':cls.identify,
-                            'GET-NEW-REQUEST-REQUIREMENTS':cls.requirements,
-                            'GET-RENEW-REQUEST-REQUIREMENTS':cls.renew_requirements,
-                            'GET-SUPPORTED-TEMPLATES':cls.templates,
-                            'GET-DEFAULT-TEMPLATE':cls.default_template,
-                            'FETCH-SCEP-CA-CAPS':cls._raise_not_implemented,
-                            'FETCH-SCEP-CA-CERTS':cls._raise_not_implemented,
-                            'FETCH-ROOTS':cls.get_ca_root_certs}
+        valid_operations = {'SUBMIT':cls().submit,
+                            'POLL':cls().poll,
+                            'IDENTIFY':cls().identify,
+                            'GET-NEW-REQUEST-REQUIREMENTS':cls().requirements,
+                            'GET-RENEW-REQUEST-REQUIREMENTS':cls().renew_requirements,
+                            'GET-SUPPORTED-TEMPLATES':cls().templates,
+                            'GET-DEFAULT-TEMPLATE':cls().default_template,
+                            'FETCH-SCEP-CA-CAPS':cls()._raise_not_implemented,
+                            'FETCH-SCEP-CA-CERTS':cls()._raise_not_implemented,
+                            'FETCH-ROOTS':cls().get_ca_root_certs}
         return valid_operations[operation]()
 
     def register(self, config=None):
@@ -263,9 +311,11 @@ class CertMongerAction(object):
         """
         logger.debug('Submitting certificate signing request')
         csr = csr or self.environment['CERTMONGER_CSR']
-        ca_profile = ca_profile or self.environment['CERTMONGER_CA_PROFILE']
-        ca_nickname = ca_nickname or self.environment['CERTMONGER_CA_NICKNAME']
-        ca_issuer = ca_issuer or self.environment['CERTMONGER_CA_ISSUER']
+
+        # Add code to handle exceptions
+#        ca_profile = ca_profile or self.environment['CERTMONGER_CA_PROFILE']
+#        ca_nickname = ca_nickname or self.environment['CERTMONGER_CA_NICKNAME']
+#        ca_issuer = ca_issuer or self.environment['CERTMONGER_CA_ISSUER']
 
         certbot.main.certonly(self.config, self.plugins)
         certbot.main.renew_cert(self.config, self.plugins, lineage)
