@@ -36,8 +36,9 @@ tmp_dir="$(mktemp -d)"
 chmod 0700 "${tmp_dir}"
 key_path="${tmp_dir}/${test_domain}.key.pem"
 csr_path="${tmp_dir}/${test_domain}.csr.pem"
-subject='/C=ZZ/ST=Unknown State/L=Nowhere/O=Cerlet/OU=Test Example/CN=example.cerlet.com'
+subject="/C=ZZ/ST=Unknown State/L=Nowhere/O=Cerlet/OU=Test Example/CN=${test_domain}"
 export CERTMONGER_REQ_HOSTNAME="${HOSTNAME}"
+export CERTMONGER_REQ_SUBJECT="${test_domain}"
 
 openssl genrsa -out  2048
 openssl req -nodes -newkey 'rsa:2048' -sha256 -keyout "${key_path}" -out "${csr_path}" -subj "${subject}"

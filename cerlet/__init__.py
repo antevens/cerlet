@@ -11,6 +11,7 @@ https://pagure.io/certmonger/blob/master/f/doc/helpers.txt
 Add documentation for certbot plugins
 """
 
+import acme
 import certbot
 import certbot.account
 import certbot.constants
@@ -28,6 +29,7 @@ import os
 import pwd
 import ipalib
 import re
+import shutil
 import stat
 import sys
 import zope
@@ -189,10 +191,18 @@ class CertMongerAction(object):
                 email = self.environment['CERTMONGER_REQ_EMAIL']
             except KeyError:
                 email = None
+                self.defaults['register_unsafely_without_email'] = True
+
         self.defaults['email'] = email
 
         # Find all plugins and set
         self.defaults['plugins'] = certbot.plugins.disco.PluginsRegistry.find_all()
+
+        # Set User Agent
+        self.defaults['user_agent'] = user_agent
+
+        # Set preferred challenge method
+        #self.defaults['pref_challs'] = acme.challenges.DNS01.typ
 
         # Override values as needed
         self.defaults['accounts_dir'] = os.path.join(paths['config_dir'],
@@ -207,7 +217,14 @@ class CertMongerAction(object):
 
         # Create config object from defaults in certbot and assign defaults
         Config = namedlist.namedlist('Config', ' '.join(self.defaults.keys()))
-        self.config = Config(**self.defaults)
+        self.namespace = Config(**self.defaults)
+        self.config = certbot.configuration.NamespaceConfig(namespace=self.namespace)
+        zope.component.provideUtility(self.config)
+
+        # Configure non-interactive displayer
+        self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
+        zope.component.provideUtility(self.displayer)
+
 
 
 #        self.config = Config(server=server,
@@ -235,11 +252,25 @@ class CertMongerAction(object):
         if len(accounts) == 0:
             # Register account with Let's Encrypt Server if needed, we always agree
             # to the TOS terms (see lambda).
-            acc, acme = certbot.client.register(config=self.config,
+            account, acmed = certbot.client.register(config=self.config,
                                                account_storage=account_storage,
                                                tos_cb=lambda *_,**__: True)
 
-            account_storage.save_regr(acc, acme)
+            account_storage.save_regr(account, acmed)
+        else:
+            acmed = None
+            account = accounts[0]
+
+        # Instantiate authenticator using DNS/FreeIPA
+        self.plugin = self.defaults['plugins']['cerlet:ipa'].init()
+        # Instantiate the installer using Certmonger
+        #self.installer = certbot.plugins.disco.PluginsRegistry.find_all()['cerlet:ipa']
+
+        # Instantiate client
+        self.client = certbot.client.Client(config=self.config,
+                account_=account, auth=self.plugin, installer=self.plugin,
+                acme=acmed)
+
 
         # Set up Certbot Client Configuration
 
@@ -322,7 +353,7 @@ class CertMongerAction(object):
     def register(self, config=None):
         certbot.main.register(config or self.config, unused_plugins=None)
 
-    def submit(self, csr=None, ca_profile=None, ca_nickname=None, ca_issuer=None):
+    def submit(self, csr=None, domains=None, ca_profile=None, ca_nickname=None, ca_issuer=None):
         """
         Accepts a single Certificate Signing Request, PKCS#10/PEM encoded
 
@@ -370,14 +401,25 @@ class CertMongerAction(object):
         """
         logger.debug('Submitting certificate signing request')
         csr = csr or self.environment['CERTMONGER_CSR']
+        domains = domains or [self.environment['CERTMONGER_REQ_SUBJECT']]
 
+#        try:
+#            domains.append(self.environment['CERTMONGER_REQ_HOSTNAME'])
+#        except KeyError:
+#            logger.debug('No alternative hostnames found/added to request')
+
+#        try:
+#            domains.append(self.environment['CERTMONGER_REQ_PRINCIPAL'])
+#        except KeyError:
+#            logger.debug('No kerberos principals found/added to request')
         # Add code to handle exceptions
 #        ca_profile = ca_profile or self.environment['CERTMONGER_CA_PROFILE']
 #        ca_nickname = ca_nickname or self.environment['CERTMONGER_CA_NICKNAME']
 #        ca_issuer = ca_issuer or self.environment['CERTMONGER_CA_ISSUER']
 
-        certbot.main.certonly(self.config, self.plugins)
-        certbot.main.renew_cert(self.config, self.plugins, lineage)
+        return self.client.obtain_certificate_from_csr(domains, csr)
+#        certbot.main.certonly(self.config, self.plugins)
+#        certbot.main.renew_cert(self.config, self.plugins, lineage)
 
     def poll(self, cookie=None):
         """
@@ -576,15 +618,51 @@ class Installer(certbot.plugins.common.Plugin):
 #    def cleanup(self, domain, validation_name, validation):
 #        pass
 
-#@zope.interface.implementer(certbot.interfaces.IInstaller)
-#@zope.interface.provider(certbot.interfaces.IPluginFactory)
-#class Installer(certbot.plugins.common.Plugin):
-#    """Certmonger Installer."""
-#
-#    description = __doc__.strip().split("\n", 1)[0]
-#
-#    print()
+@zope.interface.implementer(certbot.interfaces.IInstaller)
+@zope.interface.provider(certbot.interfaces.IPluginFactory)
+class Installer(certbot.plugins.common.Installer):
+    """Certmonger Installer, outputs the cert to stdout"""
+    description = __doc__.strip().split("\n", 1)[0]
 
+    # pylint: disable=missing-docstring,no-self-use
+
+    def prepare(self):
+        pass  # pragma: no cover
+
+    def more_info(self):
+        return description
+
+    def get_all_names(self):
+        return []
+
+    def deploy_cert(self, domain, cert_path, key_path,
+                    chain_path=None, fullchain_path=None):
+        with open(cert_path, "r") as f:
+            shutil.copyfileobj(f, sys.stdout)
+
+    def enhance(self, domain, enhancement, options=None):
+        pass  # pragma: no cover
+
+    def supported_enhancements(self):
+        return []
+
+    def save(self, title=None, temporary=False):
+        pass  # pragma: no cover
+
+    def rollback_checkpoints(self, rollback=1):
+        pass  # pragma: no cover
+
+    def recovery_routine(self):
+        pass  # pragma: no cover
+
+    def view_config_changes(self):
+        pass  # pragma: no cover
+
+    def config_test(self):
+        pass  # pragma: no cover
+
+    def restart(self):
+        pass  # pragma: no cover
 
 
     # Implement all methods from IInstaller, remembering to add
@@ -594,8 +672,7 @@ def main():
     """ Entry point when run directly """
     env = CertMongerAction.load_environment_variables()
     if env:
-        print('env')
-        print(CertMongerAction.operation_factory(os.getenv('CERTMONGER_OPERATION')))
+        CertMongerAction.operation_factory(os.getenv('CERTMONGER_OPERATION'))
     from pkg_resources import load_entry_point
     sys.argv += ['--authenticator', 'cerlet:ipa']
     sys.exit(load_entry_point('certbot', 'console_scripts', 'certbot')())
