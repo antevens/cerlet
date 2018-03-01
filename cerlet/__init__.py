@@ -263,7 +263,6 @@ class CertMongerAction(object):
                                             installer=self.plugin,
                                             acme=acme)
 
-        return self.EXIT_ISSUED
 
     @staticmethod
     def _raise_not_implemented(exception=NotImplementedError):
@@ -352,7 +351,12 @@ class CertMongerAction(object):
         csr = csr or self.environment['CERTMONGER_CSR']
         domains = domains or [self.environment['CERTMONGER_REQ_SUBJECT']]
 
-        return self.client.obtain_certificate_from_csr(domains, csr)
+        try:
+            self.client.obtain_certificate_from_csr(domains, csr)
+            return self.EXIT_ISSUED
+
+        except Exception: ## Add code to handle each kind of exception/exit code
+            raise
 
     def poll(self, cookie=None):
         """
@@ -579,7 +583,7 @@ def main():
     """ Entry point when run directly """
     env = CertMongerAction.load_environment_variables()
     if env:
-        CertMongerAction.operation_factory(os.getenv('CERTMONGER_OPERATION'))
+        sys.exit(CertMongerAction.operation_factory(os.getenv('CERTMONGER_OPERATION')))
     from pkg_resources import load_entry_point
     sys.argv += ['--authenticator', 'cerlet:ipa']
     sys.exit(load_entry_point('certbot', 'console_scripts', 'certbot')())
