@@ -11,7 +11,6 @@ https://pagure.io/certmonger/blob/master/f/doc/helpers.txt
 Add documentation for certbot plugins
 """
 
-import acme
 import certbot
 import certbot.account
 import certbot.constants
@@ -28,7 +27,6 @@ import namedlist
 import os
 import pwd
 import ipalib
-import re
 import shutil
 import stat
 import sys
@@ -41,9 +39,11 @@ __version__ = '0.0.6'
 # Set up logging
 logger = logging.getLogger(__name__)
 
+
 class PermError(Exception):
     """ Raised if permissions don't match specifications/requirments or unsafe permissions are found """
     pass
+
 
 def check_permission(perm_mode, flags=stat.S_IWOTH):
     """
@@ -79,6 +79,7 @@ def check_permission(perm_mode, flags=stat.S_IWOTH):
     """
     return bool(perm_mode & flags)
 
+
 def check_dir_perms(path, dir_perm=stat.S_IWOTH, file_perm=stat.S_IWOTH, users=('root',), groups=('root',), recurse=True):
     """
     Check dir structure and verify only specified users/groups have access
@@ -110,6 +111,12 @@ def check_dir_perms(path, dir_perm=stat.S_IWOTH, file_perm=stat.S_IWOTH, users=(
                 # Could add strmode for python one day and make nice human errors
                 err_msg = 'The permissions on file: "{0}" are "{1!s}" and violate restriction "{2!s}"'
                 raise PermError(err_msg.format(os.path.join(dir_name, f), oct(file_attrib.st_mode), oct(file_perm)))
+
+
+def match_owner_group(dest_path, source_path):
+    """ Matches owner/group from one filesystem object to another """
+    source_stat = os.stat(source_path)
+    return os.chown(dest_path, source_stat[stat.ST_UID], source_stat[stat.ST_GID])
 
 
 def mkdirp(path, inherit_owner_group=False, permission_mode=None, strict=False):
@@ -148,23 +155,24 @@ class CertMongerAction(object):
     EXIT_WAIT_WITH_DELAY = 5
     EXIT_OPERATION_NOT_SUPPORTED = 6
 
-    PATHS = {'config_dir':'/etc/certmonger/letsencrypt',
-             'work_dir':'/var/lib/certmonger/letsencrypt',
-             'log_dir':'/var/log/letsencrypt'}
+    PATHS = {'config_dir': '/etc/certmonger/letsencrypt',
+             'work_dir': '/var/lib/certmonger/letsencrypt',
+             'log_dir': '/var/log/letsencrypt'}
 
     defaults = certbot.constants.CLI_DEFAULTS
 
-    def __init__(self, paths=PATHS,
-                       email=None,
-                       key_size=4096,
-                       verify_ssl=True,
-                       user_agent='{0}/{1}'.format(__name__, __version__),
-                       staging=True,
-                       verbosity=logging.INFO):
+    def __init__(self,
+                 paths=PATHS,
+                 email=None,
+                 key_size=4096,
+                 verify_ssl=True,
+                 user_agent='{0}/{1}'.format(__name__, __version__),
+                 staging=True,
+                 verbosity=logging.INFO):
 
         # Set up logging to use syslog
         logger.setLevel(verbosity)
-        handler = logging.handlers.SysLogHandler(address = '/dev/log')
+        handler = logging.handlers.SysLogHandler(address='/dev/log')
         formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
         handler.setFormatter(formatter)
         logger.addHandler(handler)
@@ -234,13 +242,13 @@ class CertMongerAction(object):
         if len(accounts) == 0:
             # Register account with Let's Encrypt Server if needed, we always agree
             # to the TOS terms (see lambda).
-            account, acmed = certbot.client.register(config=self.config,
-                                               account_storage=account_storage,
-                                               tos_cb=lambda *_,**__: True)
+            account, acme = certbot.client.register(config=self.config,
+                                                    account_storage=account_storage,
+                                                    tos_cb=lambda *_, **__: True)
 
-            account_storage.save_regr(account, acmed)
+            account_storage.save_regr(account, acme)
         else:
-            acmed = None
+            acme = None
             account = accounts[0]
 
         # Instantiate authenticator using DNS/FreeIPA
@@ -250,8 +258,10 @@ class CertMongerAction(object):
 
         # Instantiate client
         self.client = certbot.client.Client(config=self.config,
-                account_=account, auth=self.plugin, installer=self.plugin,
-                acme=acmed)
+                                            account_=account,
+                                            auth=self.plugin,
+                                            installer=self.plugin,
+                                            acme=acme)
 
         return self.EXIT_ISSUED
 
@@ -277,16 +287,16 @@ class CertMongerAction(object):
         specified by CertMonger in environment variables.
         """
         logger.debug('Certmonger operation detected, evaluating environment variables and performing actions as requested')
-        valid_operations = {'SUBMIT':cls().submit,
-                            'POLL':cls().poll,
-                            'IDENTIFY':cls().identify,
-                            'GET-NEW-REQUEST-REQUIREMENTS':cls().requirements,
-                            'GET-RENEW-REQUEST-REQUIREMENTS':cls().renew_requirements,
-                            'GET-SUPPORTED-TEMPLATES':cls().templates,
-                            'GET-DEFAULT-TEMPLATE':cls().default_template,
-                            'FETCH-SCEP-CA-CAPS':cls()._raise_not_implemented,
-                            'FETCH-SCEP-CA-CERTS':cls()._raise_not_implemented,
-                            'FETCH-ROOTS':cls().get_ca_root_certs}
+        valid_operations = {'SUBMIT': cls().submit,
+                            'POLL': cls().poll,
+                            'IDENTIFY': cls().identify,
+                            'GET-NEW-REQUEST-REQUIREMENTS': cls().requirements,
+                            'GET-RENEW-REQUEST-REQUIREMENTS': cls().renew_requirements,
+                            'GET-SUPPORTED-TEMPLATES': cls().templates,
+                            'GET-DEFAULT-TEMPLATE': cls().default_template,
+                            'FETCH-SCEP-CA-CAPS': cls()._raise_not_implemented,
+                            'FETCH-SCEP-CA-CERTS': cls()._raise_not_implemented,
+                            'FETCH-ROOTS': cls().get_ca_root_certs}
         return valid_operations[operation]()
 
     def register(self, config=None):
@@ -342,7 +352,6 @@ class CertMongerAction(object):
         csr = csr or self.environment['CERTMONGER_CSR']
         domains = domains or [self.environment['CERTMONGER_REQ_SUBJECT']]
 
-
         return self.client.obtain_certificate_from_csr(domains, csr)
 
     def poll(self, cookie=None):
@@ -393,7 +402,6 @@ class CertMongerAction(object):
     def default_template(self):
         return self.templates(default_only=True)
 
-
     def get_ca_root_certs():
         """
         Return a dictionary of nickname/cert with the cert in PEM format.
@@ -414,7 +422,7 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
         super(Authenticator, self).__init__(*args, **kwargs)
 
     def more_info(self):
-        return self.__doc__
+        return self.description
 
     def _setup_credentials(self):
         # Set up IPA API connection
@@ -456,6 +464,7 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
     def _cleanup(self, domain, validation_domain_name, validation):
         logger.debug('Removing DNS entry: {0} to zone: {1} with value: {2}'.format(validation_domain_name, domain, validation))
         ipalib.api.Command.dnsrecord_del(dnszoneidnsname=unicode(self.zone_map[validation_domain_name][0].to_text()), idnsname=unicode(self.zone_map[validation_domain_name][1]), txtrecord=validation)
+
 
 @zope.interface.implementer(certbot.interfaces.IInstaller)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
@@ -514,15 +523,7 @@ class Installer(certbot.plugins.common.Plugin):
         add('-K', '--use_ccache_creds', '--use-ccache-creds', dest='use_ccache_creds', default=False, action='store_true', help='Use default ccache for authorization instead of authenticating')
         add('-P', '--request_principal', '--principal-of-request', dest='request_principal', help='Principal(s) (FQDN) used in signing request, comma separated')
         add('-T', '--request_profile', '--profile', dest='request_profile', help='Use a specific profile when requesting enrollment')
-    #add_argument('options', help='Options')
-    #add_argument('csr_file', help='Path to a PEM encoded Certificate Signing Request (CSR)')
 
-    def more_info(self):
-        """
-        More in-depth description of the plugin.
-        """
-
-        return "\n".join(line[4:] for line in __doc__.strip().split("\n"))
 
 @zope.interface.implementer(certbot.interfaces.IInstaller)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
@@ -536,7 +537,7 @@ class Installer(certbot.plugins.common.Installer):
         pass  # pragma: no cover
 
     def more_info(self):
-        return description
+        return self.description
 
     def get_all_names(self):
         return []
