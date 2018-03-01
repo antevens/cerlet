@@ -36,22 +36,10 @@ import zope
 import zope.component
 import zope.interface
 
-#from acme import challengesd
-#from certbot import errors
-#from certbot import interfaces
-#from certbot.display import ops
-#from certbot.display import util as display_util
-#from certbot.plugins import common
-
-__version__ = '0.0.5'
+__version__ = '0.0.6'
 
 # Set up logging
 logger = logging.getLogger(__name__)
-
-# Patterns
-#IPADDRESS_PATTERN = re.compile('(?:host/|\s|^)*((([2][5][0-5]\.)|([2][0-4][0-9]\.)|([0-1]?[0-9]?[0-9]\.)){3}(([2][5][0-5])|([2][0-4][0-9])|([0-1]?[0-9]?[0-9])))(?:@|\s|$)*')
-#FQDN_PATTERN = re.compile('(?:host/|\s)*((?:[a-z0-9]+(?:[-_][a-z0-9]+)*\.)+[a-z]{2,})(?:@|\s)*')
-
 
 class PermError(Exception):
     """ Raised if permissions don't match specifications/requirments or unsafe permissions are found """
@@ -150,16 +138,7 @@ def mkdirp(path, inherit_owner_group=False, permission_mode=None, strict=False):
 
 
 class CertMongerAction(object):
-    """ Represents an action requested by Certmonger
-
-        * (not set)
-        To ease troubleshooting, my suggestion is to treat the CERTMONGER_OPERATION
-        not being set as if it was set to SUBMIT, or POLL if a cookie value is passed
-        to your helper via a command-line option.
-        * Anything else.
-        For future-proofing, exit with status 6.
-
-    """
+    """ Represents an action requested by Certmonger """
     # Supported Exit Codes
     EXIT_ISSUED = 0
     EXIT_WAIT = 1
@@ -180,7 +159,15 @@ class CertMongerAction(object):
                        key_size=4096,
                        verify_ssl=True,
                        user_agent='{0}/{1}'.format(__name__, __version__),
-                       staging=True):
+                       staging=True,
+                       verbosity=logging.INFO):
+
+        # Set up logging to use syslog
+        logger.setLevel(verbosity)
+        handler = logging.handlers.SysLogHandler(address = '/dev/log')
+        formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
 
         # Load and store relevant environment variables
         self.environment = self.load_environment_variables()
@@ -211,10 +198,7 @@ class CertMongerAction(object):
         # Set User Agent
         self.defaults['user_agent'] = user_agent
 
-        # Set preferred challenge method
-        #self.defaults['pref_challs'] = acme.challenges.DNS01.typ
-
-        # Override values as needed
+        # Override account directory
         self.defaults['accounts_dir'] = os.path.join(paths['config_dir'],
                                                      certbot.constants.ACCOUNTS_DIR,
                                                      self.environment['CERTMONGER_REQ_HOSTNAME'])
@@ -238,22 +222,6 @@ class CertMongerAction(object):
             self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
 
         zope.component.provideUtility(self.displayer)
-
-
-
-#        self.config = Config(server=server,
-#                             email=email,
-#                             strict_permissions=False,
-#                             register_unsafely_without_email=True,
-#                             dry_run=True,
-#                             rsa_key_size=key_size,
-#                             no_verify_ssl=not verify_ssl,
-#                             user_agent=user_agent,
-#                             eff_email=None,
-#                             configurator=None,
-#                             installer=None,
-#                             plugins=self.plugins)
-
 
         # Set up Certbot Account Storage, at some point this should be moved
         # and stored by IPA in LDAP. For now we create separate accounts per
@@ -285,50 +253,7 @@ class CertMongerAction(object):
                 account_=account, auth=self.plugin, installer=self.plugin,
                 acme=acmed)
 
-
-        # Set up Certbot Client Configuration
-
-        # Log for debug purposes
-#        logger.debug('Log dir (not used) set to: {0}'.format(log_dir))
-#        logger.debug('Config dir set to: {0}'.format(config_dir))
-#        logger.debug('Work dir set to: {0}'.format(work_dir))
-#        logger.debug('Email set to: {0}'.format(email))
-
-
-        # Configure certbot plugins
-#        self.plugins = certbot.plugins.disco.PluginsRegistry.find_all()
-#        logger.debug('Certbot version: {0}'.format(certbot.__version__))
-#        logger.debug('Discovered plugins: {0}'.format(self.plugins))
-
-        # Create namespace to pass to config builder
-#        NameSpace = namedlist.namedlist('NameSpace','domains config_dir work_dir logs_dir email register_unsafely_without_email http01_port tls_sni_01_port plugins configurator installer authenticator')
-#        namespace = NameSpace(config_dir=config_dir,
-#                              work_dir=work_dir,
-#                              logs_dir=log_dir,
-#                              email=email,
-#                              http01_port=80,
-#                              tls_sni_01_port=443,
-#                              domains=('example.certbot.com',),
-#                              plugins=self.plugins,
-#                              configurator=None,
-#                              installer=None,
-#                              authenticator=None,
-#                              register_unsafely_without_email=True)
-#        self.config = certbot.configuration.NamespaceConfig(namespace)
-
-        # Set up logging to use syslog
-#        logger.setLevel(logging.DEBUG)
-#        handler = logging.handlers.SysLogHandler(address = '/dev/log')
-#        formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
-#        handler.setFormatter(formatter)
-#        logger.addHandler(handler)
-
-#        # Set Reporter, Displayer and Config
-#        zope.component.provideUtility(self.config)
-#        self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
-#        zope.component.provideUtility(self.displayer)
-#        self.report = certbot.reporter.Reporter(self.config)
-#        zope.component.provideUtility(self.report)
+        return self.EXIT_ISSUED
 
     @staticmethod
     def _raise_not_implemented(exception=NotImplementedError):
@@ -417,23 +342,8 @@ class CertMongerAction(object):
         csr = csr or self.environment['CERTMONGER_CSR']
         domains = domains or [self.environment['CERTMONGER_REQ_SUBJECT']]
 
-#        try:
-#            domains.append(self.environment['CERTMONGER_REQ_HOSTNAME'])
-#        except KeyError:
-#            logger.debug('No alternative hostnames found/added to request')
-
-#        try:
-#            domains.append(self.environment['CERTMONGER_REQ_PRINCIPAL'])
-#        except KeyError:
-#            logger.debug('No kerberos principals found/added to request')
-        # Add code to handle exceptions
-#        ca_profile = ca_profile or self.environment['CERTMONGER_CA_PROFILE']
-#        ca_nickname = ca_nickname or self.environment['CERTMONGER_CA_NICKNAME']
-#        ca_issuer = ca_issuer or self.environment['CERTMONGER_CA_ISSUER']
 
         return self.client.obtain_certificate_from_csr(domains, csr)
-#        certbot.main.certonly(self.config, self.plugins)
-#        certbot.main.renew_cert(self.config, self.plugins, lineage)
 
     def poll(self, cookie=None):
         """
@@ -543,21 +453,6 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
                     logger.exception(message)
                     raise ipalib.errors.NotFound(format=None, message=message.decode())
 
-
-        #request = asn1crypto.csr.CertificationRequest.load(der_bytes)
-        #info = request['certification_request_info']
-        #subject = info['subject'].native
-        #common_name = subject['common_name']
-        #host = ipalib.api.Command.host_show(common_name)['result']
-        #principals = host['krbprincipalname']
-        #fqdn = host['fqdn']
-
-        # Create unique list of FQDNs from principals and hostname (CSR Subject)
-        #subjects = set(list(fqdn) + [match.group(1) for principal in principals for match in [FQDN_PATTERN.match(principal), IPADDRESS_PATTERN.match(principal)] if match])
-        #logger.debug('Requesting certificate for following subjects')
-        #logger.debug(subjects)
-        # Find the DNS Zone to add/modify records to/in
-
     def _cleanup(self, domain, validation_domain_name, validation):
         logger.debug('Removing DNS entry: {0} to zone: {1} with value: {2}'.format(validation_domain_name, domain, validation))
         ipalib.api.Command.dnsrecord_del(dnszoneidnsname=unicode(self.zone_map[validation_domain_name][0].to_text()), idnsname=unicode(self.zone_map[validation_domain_name][1]), txtrecord=validation)
@@ -628,9 +523,6 @@ class Installer(certbot.plugins.common.Plugin):
         """
 
         return "\n".join(line[4:] for line in __doc__.strip().split("\n"))
-
-#    def cleanup(self, domain, validation_name, validation):
-#        pass
 
 @zope.interface.implementer(certbot.interfaces.IInstaller)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
