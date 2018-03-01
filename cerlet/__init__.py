@@ -180,7 +180,7 @@ class CertMongerAction(object):
                        key_size=4096,
                        verify_ssl=True,
                        user_agent='{0}/{1}'.format(__name__, __version__),
-                       server=certbot.constants.CLI_DEFAULTS['server']):
+                       staging=True):
 
         # Load and store relevant environment variables
         self.environment = self.load_environment_variables()
@@ -194,6 +194,16 @@ class CertMongerAction(object):
                 self.defaults['register_unsafely_without_email'] = True
 
         self.defaults['email'] = email
+
+        # Set key size
+        self.defaults['key_size'] = key_size
+
+        # Configure SSL/TLS Server cert verification
+        self.defaults['verify_ssl'] = verify_ssl
+
+        # Set prod/staging server selector
+        if staging:
+            self.defaults['staging'] = staging
 
         # Find all plugins and set
         self.defaults['plugins'] = certbot.plugins.disco.PluginsRegistry.find_all()
@@ -221,8 +231,12 @@ class CertMongerAction(object):
         self.config = certbot.configuration.NamespaceConfig(namespace=self.namespace)
         zope.component.provideUtility(self.config)
 
-        # Configure non-interactive displayer
-        self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
+        # Configure displayer depending on if we have a tty or not
+        if sys.stdout.isatty():
+            self.displayer = certbot.display.util.NoninteractiveDisplay(sys.stdout)
+        else:
+            self.displayer = certbot.display.util.NoninteractiveDisplay(open(os.devnull, "w"))
+
         zope.component.provideUtility(self.displayer)
 
 
