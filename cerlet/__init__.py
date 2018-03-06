@@ -168,7 +168,8 @@ class CertMongerAction(object):
                  verify_ssl=True,
                  user_agent='{0}/{1}'.format(__name__, __version__),
                  staging=True,
-                 verbosity=logging.INFO):
+                 verbosity=logging.INFO,
+                 propagation_seconds=10):
 
         # Set up logging to use syslog
         logger.setLevel(verbosity)
@@ -189,6 +190,10 @@ class CertMongerAction(object):
                 self.defaults['register_unsafely_without_email'] = True
 
         self.defaults['email'] = email
+
+        # Set timeout for DNS propagation
+        #settattr(self.defaults, 'cerlet:ipa_propagation_seconds', propagation_seconds)
+        self.defaults['propagation_seconds'] = propagation_seconds
 
         # Set key size
         self.defaults['key_size'] = key_size
@@ -252,7 +257,7 @@ class CertMongerAction(object):
             account = accounts[0]
 
         # Instantiate authenticator using DNS/FreeIPA
-        self.plugin = self.defaults['plugins']['cerlet:ipa'].init()
+        self.plugin = self.defaults['plugins']['cerlet:ipa'].init(config=self.config)
         # Instantiate the installer using Certmonger
         #self.installer = certbot.plugins.disco.PluginsRegistry.find_all()['cerlet:ipa']
 
@@ -348,7 +353,8 @@ class CertMongerAction(object):
             it is mentioned here so that we can refer to this list later.
         """
         logger.debug('Submitting certificate signing request')
-        csr = csr or self.environment['CERTMONGER_CSR']
+        CSR = namedlist.namedlist('CSR', 'data form')
+        csr = CSR(data = csr or self.environment['CERTMONGER_CSR'], form='pem')
         domains = domains or [self.environment['CERTMONGER_REQ_SUBJECT']]
 
         try:
@@ -428,6 +434,17 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
     def more_info(self):
         return self.description
 
+    def conf(self, var):
+        """
+        Find a configuration value for variable ``var``, try plugin
+        namespace first but then fall back to global namespace
+        """
+        try:
+            return getattr(self.config, self.dest(var))
+        except AttributeError:
+            logger.debug('Unable to find variable in plugin namespace, trying global namespace instead')
+            return getattr(self.config, var.replace("-", "_"))
+
     def _setup_credentials(self):
         # Set up IPA API connection
         logger.info('Setting up IPA Connection using kerberos credentials')
@@ -469,51 +486,6 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
         logger.debug('Removing DNS entry: {0} to zone: {1} with value: {2}'.format(validation_domain_name, domain, validation))
         ipalib.api.Command.dnsrecord_del(dnszoneidnsname=unicode(self.zone_map[validation_domain_name][0].to_text()), idnsname=unicode(self.zone_map[validation_domain_name][1]), txtrecord=validation)
 
-
-@zope.interface.implementer(certbot.interfaces.IInstaller)
-@zope.interface.provider(certbot.interfaces.IPluginFactory)
-class Installer(certbot.plugins.common.Plugin):
-    """Stdout installer."""
-
-    description = "Stdout Installer"
-
-    def prepare(self):
-        pass  # pragma: no cover
-
-    def more_info(self):
-        return "Installer that only prints to stdout"
-
-    def get_all_names(self):
-        return []
-
-    def deploy_cert(self, domain, cert_path, key_path,
-                    chain_path=None, fullchain_path=None):
-        pass  # pragma: no cover
-
-    def enhance(self, domain, enhancement, options=None):
-        pass  # pragma: no cover
-
-    def supported_enhancements(self):
-        return []
-
-    def save(self, title=None, temporary=False):
-        pass  # pragma: no cover
-
-    def rollback_checkpoints(self, rollback=1):
-        pass  # pragma: no cover
-
-    def recovery_routine(self):
-        pass  # pragma: no cover
-
-    def view_config_changes(self):
-        pass  # pragma: no cover
-
-    def config_test(self):
-        pass  # pragma: no cover
-
-    def restart(self):
-        pass  # pragma: no cover
-
     @classmethod
     def add_parser_arguments(cls, add, default_propagation_seconds=10):
         super(Authenticator, cls).add_parser_arguments(add, default_propagation_seconds)
@@ -527,7 +499,6 @@ class Installer(certbot.plugins.common.Plugin):
         add('-K', '--use_ccache_creds', '--use-ccache-creds', dest='use_ccache_creds', default=False, action='store_true', help='Use default ccache for authorization instead of authenticating')
         add('-P', '--request_principal', '--principal-of-request', dest='request_principal', help='Principal(s) (FQDN) used in signing request, comma separated')
         add('-T', '--request_profile', '--profile', dest='request_profile', help='Use a specific profile when requesting enrollment')
-
 
 @zope.interface.implementer(certbot.interfaces.IInstaller)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
@@ -574,10 +545,6 @@ class Installer(certbot.plugins.common.Installer):
 
     def restart(self):
         pass  # pragma: no cover
-
-
-    # Implement all methods from IInstaller, remembering to add
-    # "self" as first argument, e.g. def get_all_names(self)...
 
 def main():
     """ Entry point when run directly """
