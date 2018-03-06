@@ -40,7 +40,6 @@ subject="/C=ZZ/ST=Unknown State/L=Nowhere/O=Cerlet/OU=Test Example/CN=${test_dom
 export CERTMONGER_REQ_HOSTNAME="${HOSTNAME}"
 export CERTMONGER_REQ_SUBJECT="${test_domain}"
 
-openssl genrsa -out  2048
 openssl req -nodes -newkey 'rsa:2048' -sha256 -keyout "${key_path}" -out "${csr_path}" -subj "${subject}"
 export CERTMONGER_OPERATION='SUBMIT'
 export CERTMONGER_CSR="$(<${csr_path})"
