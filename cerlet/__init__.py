@@ -25,6 +25,7 @@ import grp
 import logging
 import namedlist
 import os
+import OpenSSL
 import pwd
 import ipalib
 import shutil
@@ -358,7 +359,8 @@ class CertMongerAction(object):
         domains = domains or [self.environment['CERTMONGER_REQ_SUBJECT']]
 
         try:
-            self.client.obtain_certificate_from_csr(domains, csr)
+            cert, chain = self.client.obtain_certificate_from_csr(domains, csr)
+            sys.stdout.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, cert.body))
             return self.EXIT_ISSUED
 
         except Exception: ## Add code to handle each kind of exception/exit code
