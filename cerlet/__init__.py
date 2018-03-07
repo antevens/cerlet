@@ -11,6 +11,7 @@ https://pagure.io/certmonger/blob/master/f/doc/helpers.txt
 Add documentation for certbot plugins
 """
 
+import acme
 import certbot
 import certbot.account
 import certbot.constants
@@ -22,6 +23,7 @@ import errno
 import dns
 import dns.name
 import grp
+import hashlib
 import logging
 import namedlist
 import os
@@ -45,6 +47,9 @@ class PermError(Exception):
     """ Raised if permissions don't match specifications/requirments or unsafe permissions are found """
     pass
 
+class IntegritError(Exception):
+    """ Raised if the internal integrity and validity of the application is subject"""
+    pass
 
 def check_permission(perm_mode, flags=stat.S_IWOTH):
     """
@@ -302,7 +307,14 @@ class CertMongerAction(object):
                             'FETCH-SCEP-CA-CAPS': cls()._raise_not_implemented,
                             'FETCH-SCEP-CA-CERTS': cls()._raise_not_implemented,
                             'FETCH-ROOTS': cls().get_ca_root_certs}
-        return valid_operations[operation]()
+        try:
+            return valid_operations[operation]()
+        except NotImplementedError:
+            logger.warning('Operation {0} is not supported in this version of {1} ({2})'.format(operation, __name__, __version__))
+            return self.EXIT_OPERATION_NOT_SUPPORTED
+        except KeyError:
+            logger.error('Unknown Operation: {0}'.format(operation))
+            return self.EXIT_OPERATION_NOT_SUPPORTED
 
     def register(self, config=None):
         certbot.main.register(config or self.config, unused_plugins=None)
@@ -363,8 +375,20 @@ class CertMongerAction(object):
             sys.stdout.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, cert.body))
             return self.EXIT_ISSUED
 
-        except Exception: ## Add code to handle each kind of exception/exit code
-            raise
+        except acme.messages.Error as e:
+            logger.error(e)
+            sys.stdout.write(str(e))
+            return self.EXIT_REJECTED
+
+        except acme.error.ClientError as e:
+            logger.error(e)
+            sys.stdout.write(str(e))
+            return self.EXIT_UNREACHABLE
+
+        except Exception as e: # Catch all for exceptions
+            logger.exception(e)
+            sys.stdout.write(str(e))
+            return self.EXIT_REJECTED
 
     def poll(self, cookie=None):
         """
@@ -397,9 +421,10 @@ class CertMongerAction(object):
         poll and submit methods, if renew is true it lists those required when
         renewing a certificate rather than requesting a new one.
         """
-        logger.debug('Returning list of required attributes/arguments')
-
-        print('EMAIL and hostname at least')
+        submit_requirements = 'CERTMONGER_CSR,CERTMONGER_REQ_SUBJECT,CERTMONGER_OPERATION,CERTMONGER_REQ_HOSTNAME,CERTMONGER_REQ_EMAIL'
+        logger.debug('Returning list of required attributes/arguments:')
+        logger.debug(submit_requirements)
+        sys.stdout.write(submit_requirements)
 
     def renew_requirements(self):
         return self.requirements(renew=True)
@@ -418,7 +443,34 @@ class CertMongerAction(object):
         """
         Return a dictionary of nickname/cert with the cert in PEM format.
         """
-        logger.debug('Returning CA Root certificates')
+        logger.debug('Dumping CA Root certificates')
+        root_certs = {'dstrootx3.pem': '139a5e4a4e0fa505378c72c5f700934ce8333f4e6b1b508886c4b0eb14f4be99',
+                      'isrgrootx1.pem': '22b557a27055b33606b6559f37703928d3e4ad79f110b407d04986e1843543d1',
+                      'letsencryptauthorityx3.pem': 'e231300b2b023d34f4972a5b9bba2c189a91cbfc7f80ba8629d2918d77ef1480',
+                      'lets-encrypt-x3-cross-signed.pem': 'e446c5e9dbef9d09ac9f7027c034602492437a05ff6c40011d7235fca639c79a'}
+
+        for filename, sha256sum in root_certs.iteritems():
+            cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, open(cert_file).read())
+            if cert.digest('sha256') == sha256sum:  # Verify integrity
+                nickname = ' '.join(x[1] for x in cert.get_subject().get_components())
+                if cert.get_issuer() == cert.get_subject():  # Root CA's can be identified by always being self signed
+                    sys.stdout.write('\n' + nickname + '\n')
+                    OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, sys.stdout)
+                    sys.stdout.write('\n')
+                else:
+                    OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, sys.stdout)
+                    sys.stdout.write('\n')
+            else:
+                logger.error('Unable to verify the integrity of Root CA {0}')
+                logger.error('SHA256 mismatch {0} - {1}'.format(sha256sum, cert.digest('sha256')))
+                raise IntegrityError
+
+            with open(os.path.join('certs', filename) as f:
+                cert = f.read()
+                if hashlib.sha256(cert).hexdigest() == sha256sum:
+                    sys.stdout.write('\n'.join(os.path.splitext(filename)[0])
+                    sys.stdout.write(cert)
+                    sys.stdout.write('\n')
 
 
 @zope.interface.implementer(certbot.interfaces.IAuthenticator)
