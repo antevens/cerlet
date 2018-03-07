@@ -465,13 +465,6 @@ class CertMongerAction(object):
                 logger.error('SHA256 mismatch {0} - {1}'.format(sha256sum, cert.digest('sha256')))
                 raise IntegrityError
 
-            with open(os.path.join('certs', filename) as f:
-                cert = f.read()
-                if hashlib.sha256(cert).hexdigest() == sha256sum:
-                    sys.stdout.write('\n'.join(os.path.splitext(filename)[0])
-                    sys.stdout.write(cert)
-                    sys.stdout.write('\n')
-
 
 @zope.interface.implementer(certbot.interfaces.IAuthenticator)
 @zope.interface.provider(certbot.interfaces.IPluginFactory)
