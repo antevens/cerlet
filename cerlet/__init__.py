@@ -452,13 +452,12 @@ class CertMongerAction(object):
         """
         Return a dictionary of nickname/cert with the cert in PEM format.
         """
-        
         logger.debug('Dumping CA Root certificates')
         cert_path = os.path.join(os.path.split(__file__)[0], 'certs')
-        root_certs = {'dstrootx3.pem': '139a5e4a4e0fa505378c72c5f700934ce8333f4e6b1b508886c4b0eb14f4be99',
-                      'isrgrootx1.pem': '22b557a27055b33606b6559f37703928d3e4ad79f110b407d04986e1843543d1',
-                      'letsencryptauthorityx3.pem': 'e231300b2b023d34f4972a5b9bba2c189a91cbfc7f80ba8629d2918d77ef1480',
-                      'lets-encrypt-x3-cross-signed.pem': 'e446c5e9dbef9d09ac9f7027c034602492437a05ff6c40011d7235fca639c79a'}
+        root_certs = {'dstrootx3.pem': b'06:87:26:03:31:A7:24:03:D9:09:F1:05:E6:9B:CF:0D:32:E1:BD:24:93:FF:C6:D9:20:6D:11:BC:D6:77:07:39',
+                      'isrgrootx1.pem': '96:BC:EC:06:26:49:76:F3:74:60:77:9A:CF:28:C5:A7:CF:E8:A3:C0:AA:E1:1A:8F:FC:EE:05:C0:BD:DF:08:C6',
+                      'letsencryptauthorityx3.pem': b'73:1D:3D:9C:FA:A0:61:48:7A:1D:71:44:5A:42:F6:7D:F0:AF:CA:2A:6C:2D:2F:98:FF:7B:3C:E1:12:B1:F5:68',
+                      'lets-encrypt-x3-cross-signed.pem': b'25:84:7D:66:8E:B4:F0:4F:DD:40:B1:2B:6B:07:40:C5:67:DA:7D:02:43:08:EB:6C:2C:96:FE:41:D9:DE:21:8D'}
 
         for filename, sha256sum in root_certs.iteritems():
             cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, open(os.path.join(cert_path, filename)).read())
@@ -466,13 +465,13 @@ class CertMongerAction(object):
                 nickname = ' '.join(x[1] for x in cert.get_subject().get_components())
                 if cert.get_issuer() == cert.get_subject():  # Root CA's can be identified by always being self signed
                     sys.stdout.write('\n' + nickname + '\n')
-                    OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, sys.stdout)
+                    sys.stdout.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, cert))
                     sys.stdout.write('\n')
                 else:
-                    OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, sys.stdout)
+                    sys.stdout.write(OpenSSL.crypto.dump_certificate(OpenSSL.crypto.FILETYPE_PEM, cert))
                     sys.stdout.write('\n')
             else:
-                logger.error('Unable to verify the integrity of Root CA {0}')
+                logger.error('Unable to verify the integrity of Root CA {0}'.format(filename))
                 logger.error('SHA256 mismatch {0} - {1}'.format(sha256sum, cert.digest('sha256')))
                 raise IntegrityError
 
