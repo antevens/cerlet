@@ -21,6 +21,8 @@ if ! [[ -t 1 ]]; then
     interactive=false
 fi
 
+cerlet_binary="$(which cerlet 2>/dev/null || find $(getent passwd ${SUDO_USER:-root} | cut -f6 -d:) -executable -type f -name cerlet 2>/dev/null)"
+
 # Default is interactive mode unless already set
 interactive="${interactive:-true}"
 
@@ -46,8 +48,7 @@ export CERTMONGER_CSR="$(<${csr_path})"
 #export CERTMONGER_CA_PROFILE
 #export CERTMONGER_CA_NICKNAME
 #export CERTMONGER_CA_ISSUER
-# Replace with something better for testing and prod
-/home/vagrant/Revisions/certbot/venv/bin/cerlet
+${cerlet_binary}
 
 # Clean up
 rm -f "${key_path}"
@@ -85,7 +86,7 @@ export CERTMONGER_OPERATION='FETCH-SCEP-CA-CERTS'
 unset CERTMONGER_OPERATION
 
 export CERTMONGER_OPERATION='FETCH-ROOTS'
-/home/vagrant/Revisions/certbot/venv/bin/cerlet
+${cerlet_binary}
 unset CERTMONGER_OPERATION
 
 unset CERTMONGER_REQ_HOSTNAME

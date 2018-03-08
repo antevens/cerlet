@@ -47,7 +47,7 @@ class PermError(Exception):
     """ Raised if permissions don't match specifications/requirments or unsafe permissions are found """
     pass
 
-class IntegritError(Exception):
+class IntegrityError(Exception):
     """ Raised if the internal integrity and validity of the application is subject"""
     pass
 
@@ -177,12 +177,20 @@ class CertMongerAction(object):
                  verbosity=logging.INFO,
                  propagation_seconds=10):
 
-        # Set up logging to use syslog
-        logger.setLevel(verbosity)
-        handler = logging.handlers.SysLogHandler(address='/dev/log')
         formatter = logging.Formatter('%(module)s.%(funcName)s: %(message)s')
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
+        logger.setLevel(verbosity)
+
+        # Set up logging to use syslog
+        syslog_handler = logging.handlers.SysLogHandler(address='/dev/log')
+        syslog_handler.setFormatter(formatter)
+        syslog_handler.setLevel(verbosity)
+        logger.addHandler(syslog_handler)
+        # Create console logger for stdout/stderr if we have a tty, full debug
+        if sys.stdout.isatty():
+            console_handler = logging.StreamHandler()
+            console_handler.setLevel(logging.DEBUG)
+            console_handler.setFormatter(formatter)
+            logger.addHandler(console_handler)
 
         # Load and store relevant environment variables
         self.environment = self.load_environment_variables()
@@ -297,18 +305,19 @@ class CertMongerAction(object):
         specified by CertMonger in environment variables.
         """
         logger.debug('Certmonger operation detected, evaluating environment variables and performing actions as requested')
-        valid_operations = {'SUBMIT': cls().submit,
-                            'POLL': cls().poll,
-                            'IDENTIFY': cls().identify,
-                            'GET-NEW-REQUEST-REQUIREMENTS': cls().requirements,
-                            'GET-RENEW-REQUEST-REQUIREMENTS': cls().renew_requirements,
-                            'GET-SUPPORTED-TEMPLATES': cls().templates,
-                            'GET-DEFAULT-TEMPLATE': cls().default_template,
-                            'FETCH-SCEP-CA-CAPS': cls()._raise_not_implemented,
-                            'FETCH-SCEP-CA-CERTS': cls()._raise_not_implemented,
-                            'FETCH-ROOTS': cls().get_ca_root_certs}
+        valid_operations = {'SUBMIT': cls.submit,
+                            'POLL': cls.poll,
+                            'IDENTIFY': cls.identify,
+                            'GET-NEW-REQUEST-REQUIREMENTS': cls.requirements,
+                            'GET-RENEW-REQUEST-REQUIREMENTS': cls.renew_requirements,
+                            'GET-SUPPORTED-TEMPLATES': cls.templates,
+                            'GET-DEFAULT-TEMPLATE': cls.default_template,
+                            'FETCH-SCEP-CA-CAPS': cls._raise_not_implemented,
+                            'FETCH-SCEP-CA-CERTS': cls._raise_not_implemented,
+                            'FETCH-ROOTS': cls.get_ca_root_certs}
         try:
-            return valid_operations[operation]()
+
+            return valid_operations[operation](cls())
         except NotImplementedError:
             logger.warning('Operation {0} is not supported in this version of {1} ({2})'.format(operation, __name__, __version__))
             return self.EXIT_OPERATION_NOT_SUPPORTED
@@ -439,18 +448,20 @@ class CertMongerAction(object):
     def default_template(self):
         return self.templates(default_only=True)
 
-    def get_ca_root_certs():
+    def get_ca_root_certs(self):
         """
         Return a dictionary of nickname/cert with the cert in PEM format.
         """
+        
         logger.debug('Dumping CA Root certificates')
+        cert_path = os.path.join(os.path.split(__file__)[0], 'certs')
         root_certs = {'dstrootx3.pem': '139a5e4a4e0fa505378c72c5f700934ce8333f4e6b1b508886c4b0eb14f4be99',
                       'isrgrootx1.pem': '22b557a27055b33606b6559f37703928d3e4ad79f110b407d04986e1843543d1',
                       'letsencryptauthorityx3.pem': 'e231300b2b023d34f4972a5b9bba2c189a91cbfc7f80ba8629d2918d77ef1480',
                       'lets-encrypt-x3-cross-signed.pem': 'e446c5e9dbef9d09ac9f7027c034602492437a05ff6c40011d7235fca639c79a'}
 
         for filename, sha256sum in root_certs.iteritems():
-            cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, open(cert_file).read())
+            cert = OpenSSL.crypto.load_certificate(OpenSSL.crypto.FILETYPE_PEM, open(os.path.join(cert_path, filename)).read())
             if cert.digest('sha256') == sha256sum:  # Verify integrity
                 nickname = ' '.join(x[1] for x in cert.get_subject().get_components())
                 if cert.get_issuer() == cert.get_subject():  # Root CA's can be identified by always being self signed
