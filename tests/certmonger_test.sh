@@ -59,8 +59,6 @@ function exit_on_fail {
 
 # Construct command to call
 cerlet_binary="$(which cerlet 2>/dev/null || find $(getent passwd ${SUDO_USER:-root} | cut -f6 -d:) -executable -type f -name cerlet 2>/dev/null)"
-cerlet_command="${cerlet_binary} || exit_on_fail \"Failure during '${CERTMONGER_OPERATION}' testing\""
-
 test_domain="example.cerlet.com"
 tmp_dir="$(mktemp -d)"
 chmod 0700 "${tmp_dir}"
@@ -76,7 +74,9 @@ export CERTMONGER_CSR="$(<${csr_path})"
 #export CERTMONGER_CA_PROFILE
 #export CERTMONGER_CA_NICKNAME
 #export CERTMONGER_CA_ISSUER
-${cerlet_command}
+
+${cerlet_binary} || exit_on_fail "Failure during ${CERTMONGER_OPERATION} testing"
+
 # Clean up
 rm -f "${key_path}"
 rm -f "${csr_path}"
@@ -113,7 +113,8 @@ export CERTMONGER_OPERATION='FETCH-SCEP-CA-CERTS'
 unset CERTMONGER_OPERATION
 
 export CERTMONGER_OPERATION='FETCH-ROOTS'
-${cerlet_command}
+${cerlet_binary} || exit_on_fail "Failure during ${CERTMONGER_OPERATION} testing"
+
 unset CERTMONGER_OPERATION
 
 unset CERTMONGER_REQ_HOSTNAME
