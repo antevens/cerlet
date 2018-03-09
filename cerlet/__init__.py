@@ -160,6 +160,7 @@ class CertMongerAction(object):
     EXIT_UNCONFIGURED = 4
     EXIT_WAIT_WITH_DELAY = 5
     EXIT_OPERATION_NOT_SUPPORTED = 6
+    EXIT_NEW_KEYPAIR_REQUIRED = 17
 
     PATHS = {'config_dir': '/etc/certmonger/letsencrypt',
              'work_dir': '/var/lib/certmonger/letsencrypt',
@@ -509,7 +510,7 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
             ipalib.api.bootstrap_with_global_options(context=__name__)
             ipalib.api.finalize()
         except ipalib.errors.KerberosError:
-            logger.exception('Exception occurred authenticating with IPA server')
+            logger.exception('Exception occurred communicating and authenticating to the IPA server, make sure you have valid kerberos credentials')
             raise
 
         if ipalib.api.env.in_server:

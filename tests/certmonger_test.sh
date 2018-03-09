@@ -20,9 +20,6 @@
 if ! [[ -t 1 ]]; then
     interactive=false
 fi
-
-cerlet_binary="$(which cerlet 2>/dev/null || find $(getent passwd ${SUDO_USER:-root} | cut -f6 -d:) -executable -type f -name cerlet 2>/dev/null)"
-
 # Default is interactive mode unless already set
 interactive="${interactive:-true}"
 
@@ -32,6 +29,37 @@ interactive="${interactive:-true}"
 if ! ${interactive} ; then
     set -euo pipefail
 fi
+
+# Store full path to this script
+script_full_path="${0}"
+if [ ! -f "${script_full_path}" ] ; then
+    script_full_path="$(pwd)"
+fi
+
+# Allows checking of exit status, on error print debugging info and exit.
+# Takes an optional error message in which case only it will be shown
+# This is typically only used when running in non-strict mode but when errors
+# should be raised and to help with debugging
+function exit_on_fail {
+    message="${*:-}"
+    if [ -z "${message}" ] ; then
+        echo "Last command did not execute successfully but is required!" >&2
+    else
+        echo "${*}" >&2
+    fi
+    echo "[$( caller )] ${*}"
+    echo "BASH_SOURCE: ${BASH_SOURCE[*]}"
+    echo "BASH_LINENO: ${BASH_LINENO[*]}"
+    echo  "FUNCNAME: ${FUNCNAME[*]}"
+    # Exit if we are running as a script
+    if [ -f "${script_full_path}" ]; then
+        exit 1
+    fi
+}
+
+# Construct command to call
+cerlet_binary="$(which cerlet 2>/dev/null || find $(getent passwd ${SUDO_USER:-root} | cut -f6 -d:) -executable -type f -name cerlet 2>/dev/null)"
+cerlet_command="${cerlet_binary} || exit_on_fail \"Failure during '${CERTMONGER_OPERATION}' testing\""
 
 test_domain="example.cerlet.com"
 tmp_dir="$(mktemp -d)"
@@ -48,8 +76,7 @@ export CERTMONGER_CSR="$(<${csr_path})"
 #export CERTMONGER_CA_PROFILE
 #export CERTMONGER_CA_NICKNAME
 #export CERTMONGER_CA_ISSUER
-${cerlet_binary}
-
+${cerlet_command}
 # Clean up
 rm -f "${key_path}"
 rm -f "${csr_path}"
@@ -86,7 +113,7 @@ export CERTMONGER_OPERATION='FETCH-SCEP-CA-CERTS'
 unset CERTMONGER_OPERATION
 
 export CERTMONGER_OPERATION='FETCH-ROOTS'
-${cerlet_binary}
+${cerlet_command}
 unset CERTMONGER_OPERATION
 
 unset CERTMONGER_REQ_HOSTNAME
