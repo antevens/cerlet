@@ -492,17 +492,6 @@ class Authenticator(certbot.plugins.dns_common.DNSAuthenticator):
     def more_info(self):
         return self.description
 
-    def conf(self, var):
-        """
-        Find a configuration value for variable ``var``, try plugin
-        namespace first but then fall back to global namespace
-        """
-        try:
-            return getattr(self.config, self.dest(var))
-        except AttributeError:
-            logger.debug('Unable to find variable in plugin namespace, trying global namespace instead')
-            return getattr(self.config, var.replace("-", "_"))
-
     def _setup_credentials(self):
         # Set up IPA API connection
         logger.info('Setting up IPA Connection using kerberos credentials')
